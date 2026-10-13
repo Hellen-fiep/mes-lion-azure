@@ -104,7 +104,8 @@ public sealed class ServicoArquivos(ProvedorPersistencia provedor, IArmazenament
     {
         var conteudo = await estado.ExportarAsync(ct);
         var versao = (await estado.ObterAsync(ct)).Versao;
-        string nome = $"MES_LION_BACKUP_{DateTime.Now:yyyyMMdd_HHmmss}_v{versao}.json.gz";
+        // Nome único mesmo com dois backups no mesmo segundo (ex.: backup manual seguido de importação).
+        string nome = $"MES_LION_BACKUP_{DateTime.Now:yyyyMMdd_HHmmss_fff}_v{versao}_{Guid.NewGuid().ToString("N")[..6]}.json.gz";
         using var ms = new MemoryStream();
         await using (var gz = new GZipStream(ms, CompressionLevel.Optimal, leaveOpen: true))
             await gz.WriteAsync(conteudo, ct);

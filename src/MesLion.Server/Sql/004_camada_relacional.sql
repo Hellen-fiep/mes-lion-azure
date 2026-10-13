@@ -155,7 +155,7 @@ GO
 /* ---------------------------------------------------------------------
    rel.fn_num — mesma regra da função num() do frontend (app.js):
    remove "R$" e espaços; se houver vírgula e ponto, remove os pontos (milhar);
-   troca a primeira vírgula por ponto; descarta caracteres não numéricos.
+   troca a primeira vírgula por ponto; mantém só dígitos, ponto e sinal de menos.
    Retorna NULL onde o frontend usaria 0 por valor vazio/inválido.
    --------------------------------------------------------------------- */
 CREATE OR ALTER FUNCTION rel.fn_num (@v NVARCHAR(4000))
@@ -163,21 +163,23 @@ RETURNS DECIMAL(38,10)
 AS
 BEGIN
     IF @v IS NULL RETURN NULL;
-    DECLARE @s NVARCHAR(4000) = REPLACE(@v, N'R$', N'');
+    DECLARE @s NVARCHAR(4000) = REPLACE(@v COLLATE Latin1_General_100_BIN2, N'R$', N'');
     SET @s = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@s, N' ', N''), NCHAR(160), N''), NCHAR(9), N''), NCHAR(10), N''), NCHAR(13), N''), NCHAR(8239), N'');
     IF @s = N'' RETURN NULL;
     IF CHARINDEX(N',', @s) > 0 AND CHARINDEX(N'.', @s) > 0
         SET @s = REPLACE(@s, N'.', N'');
     IF CHARINDEX(N',', @s) > 0
         SET @s = STUFF(@s, CHARINDEX(N',', @s), 1, N'.');
-    DECLARE @i INT = PATINDEX(N'%[^0-9.-]%', @s COLLATE Latin1_General_100_BIN2);
-    WHILE @i > 0
+    -- Equivalente a s.replace(/[^0-9.\-]/g, '') do frontend (por código Unicode, sem depender de collation).
+    DECLARE @r NVARCHAR(4000) = N'', @i INT = 1, @n INT = DATALENGTH(@s) / 2, @u INT;
+    WHILE @i <= @n
     BEGIN
-        SET @s = STUFF(@s, @i, 1, N'');
-        SET @i = PATINDEX(N'%[^0-9.-]%', @s COLLATE Latin1_General_100_BIN2);
+        SET @u = UNICODE(SUBSTRING(@s, @i, 1));
+        IF (@u BETWEEN 48 AND 57) OR @u = 46 OR @u = 45 SET @r = @r + NCHAR(@u);
+        SET @i += 1;
     END;
-    IF @s = N'' OR @s = N'-' OR @s = N'.' RETURN NULL;
-    RETURN TRY_CONVERT(DECIMAL(38,10), @s);
+    IF @r IN (N'', N'-', N'.', N'-.') RETURN NULL;
+    RETURN TRY_CONVERT(DECIMAL(38,10), @r);
 END;
 GO
 
@@ -191,6 +193,13 @@ SELECT c.name AS colecao, c.ordinal AS ordem, c.item_count AS registros, c.size_
 FROM dbo.app_state_collection c
 LEFT JOIN dbo.users u ON u.id = c.updated_by;
 GO
+
+/* =====================================================================
+   Views de correlação. Regra comum: cada consulta a um cadastro (produto, roteiro,
+   equipamento, empresa...) usa o PRIMEIRO registro com o código, exatamente como o
+   frontend (Array.find). Assim cada linha da coleção principal aparece uma única vez,
+   mesmo quando o cadastro repete o código (ex.: equipamento cadastrado por escala).
+   ===================================================================== */
 
 /* ---------------------------------------------------------------------
    Estrutura do produto (PA/PI) com o item pai
@@ -214,12 +223,18 @@ WITH e AS (
         energia_wh    NVARCHAR(100) N'$."Energia (Wh)"'
     ) j
     WHERE c.name = N'estrutura' AND r.[type] = 5
+), pai AS (
+    SELECT x.codigo, x.descricao, x.tipo_produto
+    FROM (SELECT e.codigo, e.descricao, e.tipo_produto,
+                 ROW_NUMBER() OVER (PARTITION BY e.codigo COLLATE Latin1_General_100_BIN2 ORDER BY e.linha) AS rn
+          FROM e) x
+    WHERE x.rn = 1
 )
 SELECT e.linha, e.codigo, e.descricao, e.tipo_produto, e.codigo_pai, p.descricao AS descricao_pai, p.tipo_produto AS tipo_pai,
        e.tipo_pi, e.celula, e.composicao, e.modelo, e.capacidade_ah, rel.fn_num(e.capacidade_ah) AS capacidade_ah_num,
        e.energia_wh, rel.fn_num(e.energia_wh) AS energia_wh_num
 FROM e
-LEFT JOIN e AS p ON p.codigo COLLATE Latin1_General_100_BIN2 = NULLIF(e.codigo_pai, N'') COLLATE Latin1_General_100_BIN2;
+LEFT JOIN pai AS p ON p.codigo COLLATE Latin1_General_100_BIN2 = NULLIF(e.codigo_pai, N'') COLLATE Latin1_General_100_BIN2;
 GO
 
 /* ---------------------------------------------------------------------
@@ -228,13 +243,16 @@ GO
 CREATE OR ALTER VIEW rel.vw_roteiro_recursos
 AS
 WITH rot AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (
-        CodRoteiro NVARCHAR(200) N'$.CodRoteiro', CodigoProduto NVARCHAR(200) N'$.CodigoProduto', CodigoPI NVARCHAR(200) N'$.CodigoPI',
-        Tipo NVARCHAR(200) N'$.Tipo', EscalaProducao NVARCHAR(200) N'$.EscalaProducao', Versao NVARCHAR(50) N'$.Versao',
-        StatusRoteiro NVARCHAR(100) N'$.StatusRoteiro', DescricaoRoteiro NVARCHAR(MAX) N'$.DescricaoRoteiro'
-    ) j WHERE c.name = N'roteiro' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.CodRoteiro COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (
+            CodRoteiro NVARCHAR(200) N'$.CodRoteiro', CodigoProduto NVARCHAR(200) N'$.CodigoProduto', CodigoPI NVARCHAR(200) N'$.CodigoPI',
+            Tipo NVARCHAR(200) N'$.Tipo', EscalaProducao NVARCHAR(200) N'$.EscalaProducao', Versao NVARCHAR(50) N'$.Versao',
+            StatusRoteiro NVARCHAR(100) N'$.StatusRoteiro', DescricaoRoteiro NVARCHAR(MAX) N'$.DescricaoRoteiro'
+        ) j WHERE c.name = N'roteiro' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 ), rec AS (
     SELECT TRY_CAST(r.[key] AS INT) AS linha, j.* FROM dbo.app_state_collection c
     CROSS APPLY OPENJSON(c.content) r
@@ -245,11 +263,11 @@ WITH rot AS (
         PotenciaEquipamento NVARCHAR(100) N'$.PotenciaEquipamento'
     ) j WHERE c.name = N'roteiro_recursos' AND r.[type] = 5
 ), mat AS (
-    SELECT j.IdRecursoRoteiro, COUNT(*) AS materiais FROM dbo.app_state_collection c
+    SELECT j.IdRecursoRoteiro COLLATE Latin1_General_100_BIN2 AS IdRecursoRoteiro, COUNT(*) AS materiais FROM dbo.app_state_collection c
     CROSS APPLY OPENJSON(c.content) r
     CROSS APPLY OPENJSON(r.[value]) WITH (IdRecursoRoteiro NVARCHAR(200) N'$.IdRecursoRoteiro') j
     WHERE c.name = N'roteiro_materiais' AND r.[type] = 5
-    GROUP BY j.IdRecursoRoteiro
+    GROUP BY j.IdRecursoRoteiro COLLATE Latin1_General_100_BIN2
 )
 SELECT rec.linha, rec.CodRoteiro AS cod_roteiro, rot.CodigoProduto AS codigo_produto, rot.CodigoPI AS codigo_pi, rot.Tipo AS tipo_celula,
        rot.EscalaProducao AS escala, rot.Versao AS versao, rot.StatusRoteiro AS status_roteiro,
@@ -259,7 +277,7 @@ SELECT rec.linha, rec.CodRoteiro AS cod_roteiro, rot.CodigoProduto AS codigo_pro
        rec.NPessoas AS n_pessoas, rec.PotenciaEquipamento AS potencia_w, ISNULL(mat.materiais, 0) AS materiais_vinculados
 FROM rec
 LEFT JOIN rot ON rot.CodRoteiro COLLATE Latin1_General_100_BIN2 = rec.CodRoteiro COLLATE Latin1_General_100_BIN2
-LEFT JOIN mat ON mat.IdRecursoRoteiro COLLATE Latin1_General_100_BIN2 = rec.IdRecursoRoteiro COLLATE Latin1_General_100_BIN2;
+LEFT JOIN mat ON mat.IdRecursoRoteiro = rec.IdRecursoRoteiro COLLATE Latin1_General_100_BIN2;
 GO
 
 /* ---------------------------------------------------------------------
@@ -279,16 +297,26 @@ WITH op AS (
         CustoMateriaisProjetado NVARCHAR(100) N'$.CustoMateriaisProjetado', CustoMateriaisEfetivo NVARCHAR(100) N'$.CustoMateriaisEfetivo',
         Usuario NVARCHAR(80) N'$.Usuario'
     ) j WHERE c.name = N'op' AND r.[type] = 5
+), pai AS (
+    SELECT x.CodOP, x.TipoOP
+    FROM (SELECT op.CodOP, op.TipoOP, ROW_NUMBER() OVER (PARTITION BY op.CodOP COLLATE Latin1_General_100_BIN2 ORDER BY op.linha) AS rn FROM op) x
+    WHERE x.rn = 1
 ), est AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (Codigo NVARCHAR(200) N'$."Código"', Descricao NVARCHAR(MAX) N'$."Descrição"', TipoProduto NVARCHAR(50) N'$."Tipo Produto"') j
-    WHERE c.name = N'estrutura' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.Codigo COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (Codigo NVARCHAR(200) N'$."Código"', Descricao NVARCHAR(MAX) N'$."Descrição"', TipoProduto NVARCHAR(50) N'$."Tipo Produto"') j
+        WHERE c.name = N'estrutura' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 ), rot AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (CodRoteiro NVARCHAR(200) N'$.CodRoteiro', Tipo NVARCHAR(200) N'$.Tipo', EscalaProducao NVARCHAR(200) N'$.EscalaProducao') j
-    WHERE c.name = N'roteiro' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.CodRoteiro COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (CodRoteiro NVARCHAR(200) N'$.CodRoteiro', Tipo NVARCHAR(200) N'$.Tipo', EscalaProducao NVARCHAR(200) N'$.EscalaProducao') j
+        WHERE c.name = N'roteiro' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 )
 SELECT op.linha, op.CodOP AS cod_op, op.TipoOP AS tipo_op, op.OP_Base AS op_base, op.OP_Pai AS op_pai, pai.TipoOP AS tipo_op_pai,
        op.Status AS status, op.CodigoProduto AS codigo_produto, ISNULL(est.Descricao, op.DescricaoProduto) AS descricao_produto,
@@ -301,7 +329,7 @@ SELECT op.linha, op.CodOP AS cod_op, op.TipoOP AS tipo_op, op.OP_Base AS op_base
 FROM op
 LEFT JOIN est ON est.Codigo COLLATE Latin1_General_100_BIN2 = op.CodigoProduto COLLATE Latin1_General_100_BIN2
 LEFT JOIN rot ON rot.CodRoteiro COLLATE Latin1_General_100_BIN2 = op.CodRoteiro COLLATE Latin1_General_100_BIN2
-LEFT JOIN op AS pai ON pai.CodOP COLLATE Latin1_General_100_BIN2 = NULLIF(op.OP_Pai, N'') COLLATE Latin1_General_100_BIN2;
+LEFT JOIN pai ON pai.CodOP COLLATE Latin1_General_100_BIN2 = NULLIF(op.OP_Pai, N'') COLLATE Latin1_General_100_BIN2;
 GO
 
 /* ---------------------------------------------------------------------
@@ -320,17 +348,23 @@ WITH et AS (
         TempoPlanejado NVARCHAR(100) N'$.TempoPlanejado', PessoasPlanejado NVARCHAR(50) N'$.PessoasPlanejado', Status NVARCHAR(100) N'$.Status'
     ) j WHERE c.name = N'op_etapas' AND r.[type] = 5
 ), op AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (CodOP NVARCHAR(200) N'$.CodOP', Status NVARCHAR(100) N'$.Status', TipoOP NVARCHAR(50) N'$.TipoOP', OP_Base NVARCHAR(200) N'$.OP_Base') j
-    WHERE c.name = N'op' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.CodOP COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (CodOP NVARCHAR(200) N'$.CodOP', Status NVARCHAR(100) N'$.Status', TipoOP NVARCHAR(50) N'$.TipoOP', OP_Base NVARCHAR(200) N'$.OP_Base') j
+        WHERE c.name = N'op' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 ), eq AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (
-        Codigo NVARCHAR(200) N'$."Código Equipamento"', Equipamento NVARCHAR(MAX) N'$.Equipamento', Processo NVARCHAR(MAX) N'$.Processo',
-        Escala NVARCHAR(100) N'$.Escala', Ativo NVARCHAR(20) N'$.Ativo', Potencia NVARCHAR(100) N'$."PotenciaEquipamento (W)"'
-    ) j WHERE c.name = N'cad_recursos' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.Codigo COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (
+            Codigo NVARCHAR(200) N'$."Código Equipamento"', Equipamento NVARCHAR(MAX) N'$.Equipamento', Processo NVARCHAR(MAX) N'$.Processo',
+            Escala NVARCHAR(100) N'$.Escala', Ativo NVARCHAR(20) N'$.Ativo', Potencia NVARCHAR(100) N'$."PotenciaEquipamento (W)"'
+        ) j WHERE c.name = N'cad_recursos' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 )
 SELECT et.linha, et.CodOP AS cod_op, op.TipoOP AS tipo_op, op.OP_Base AS op_base, op.Status AS status_op,
        et.Ordem AS ordem, rel.fn_num(et.Ordem) AS ordem_num, et.Processo AS processo, et.IdProcesso AS id_processo,
@@ -363,15 +397,21 @@ WITH om AS (
         PercentualFormula NVARCHAR(50) N'$.PercentualFormula', TipoConsumo NVARCHAR(200) N'$.TipoConsumo'
     ) j WHERE c.name = N'op_materiais' AND r.[type] = 5
 ), mat AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (Codigo NVARCHAR(200) N'$."CódigoMaterial"', Descricao NVARCHAR(MAX) N'$.DescricaoMateriais', Categoria NVARCHAR(200) N'$.Categoria', UM NVARCHAR(30) N'$.UM') j
-    WHERE c.name = N'materiais' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.Codigo COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (Codigo NVARCHAR(200) N'$."CódigoMaterial"', Descricao NVARCHAR(MAX) N'$.DescricaoMateriais', Categoria NVARCHAR(200) N'$.Categoria', UM NVARCHAR(30) N'$.UM') j
+        WHERE c.name = N'materiais' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 ), op AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (CodOP NVARCHAR(200) N'$.CodOP', CodigoProduto NVARCHAR(200) N'$.CodigoProduto', Status NVARCHAR(100) N'$.Status', OP_Base NVARCHAR(200) N'$.OP_Base') j
-    WHERE c.name = N'op' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.CodOP COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (CodOP NVARCHAR(200) N'$.CodOP', CodigoProduto NVARCHAR(200) N'$.CodigoProduto', Status NVARCHAR(100) N'$.Status', OP_Base NVARCHAR(200) N'$.OP_Base') j
+        WHERE c.name = N'op' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 )
 SELECT om.linha, om.CodOP AS cod_op, op.OP_Base AS op_base, op.CodigoProduto AS produto_op, op.Status AS status_op,
        ISNULL(NULLIF(om.Ordem, N''), om.OrdemEtapa) AS ordem_etapa, om.Processo AS processo, om.IdRecursoRoteiro AS id_recurso_roteiro,
@@ -403,20 +443,29 @@ WITH en AS (
         DataCadastro NVARCHAR(50) N'$.DataCadatro', CodigoProjeto NVARCHAR(100) N'$.CodigoProjeto', Projeto NVARCHAR(MAX) N'$.Projeto'
     ) j WHERE c.name = N'entradas' AND r.[type] = 5
 ), mat AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (Codigo NVARCHAR(200) N'$."CódigoMaterial"', Descricao NVARCHAR(MAX) N'$.DescricaoMateriais', Categoria NVARCHAR(200) N'$.Categoria') j
-    WHERE c.name = N'materiais' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.Codigo COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (Codigo NVARCHAR(200) N'$."CódigoMaterial"', Descricao NVARCHAR(MAX) N'$.DescricaoMateriais', Categoria NVARCHAR(200) N'$.Categoria') j
+        WHERE c.name = N'materiais' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 ), emp AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (CodigoEM NVARCHAR(100) N'$.CodigoEM', RazaoSocial NVARCHAR(MAX) N'$.RazaoSocial', CNPJ NVARCHAR(40) N'$.CNPJ') j
-    WHERE c.name = N'empresas' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.CodigoEM COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (CodigoEM NVARCHAR(100) N'$.CodigoEM', RazaoSocial NVARCHAR(MAX) N'$.RazaoSocial', CNPJ NVARCHAR(40) N'$.CNPJ') j
+        WHERE c.name = N'empresas' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 ), prj AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (CodProjeto NVARCHAR(100) N'$.CodProjeto', NomeProjeto NVARCHAR(MAX) N'$."Nome Projeto"') j
-    WHERE c.name = N'projetos' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.CodProjeto COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (CodProjeto NVARCHAR(100) N'$.CodProjeto', NomeProjeto NVARCHAR(MAX) N'$."Nome Projeto"') j
+        WHERE c.name = N'projetos' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 )
 SELECT en.linha, en.Entrada AS entrada, en.CodigoMaterial AS codigo_material, ISNULL(mat.Descricao, en.DescricaoMaterial) AS descricao_material,
        mat.Categoria AS categoria, en.QtdAdquirida AS qtd_adquirida, rel.fn_num(en.QtdAdquirida) AS qtd_adquirida_num, en.UnidadeMedida AS um,
@@ -476,20 +525,29 @@ WITH bp AS (
         DataCriacao NVARCHAR(50) N'$.DataCriacao', DataUltimaAlteracao NVARCHAR(50) N'$.DataUltimaAlteracao'
     ) j WHERE c.name = N'bp' AND r.[type] = 5
 ), emp AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (CodigoEM NVARCHAR(100) N'$.CodigoEM', RazaoSocial NVARCHAR(MAX) N'$.RazaoSocial', CNPJ NVARCHAR(40) N'$.CNPJ') j
-    WHERE c.name = N'empresas' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.CodigoEM COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (CodigoEM NVARCHAR(100) N'$.CodigoEM', RazaoSocial NVARCHAR(MAX) N'$.RazaoSocial', CNPJ NVARCHAR(40) N'$.CNPJ') j
+        WHERE c.name = N'empresas' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 ), op AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (CodOP NVARCHAR(200) N'$.CodOP', Status NVARCHAR(100) N'$.Status', QtdPlanejada NVARCHAR(100) N'$.QtdPlanejada') j
-    WHERE c.name = N'op' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.CodOP COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (CodOP NVARCHAR(200) N'$.CodOP', Status NVARCHAR(100) N'$.Status', QtdPlanejada NVARCHAR(100) N'$.QtdPlanejada') j
+        WHERE c.name = N'op' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 ), est AS (
-    SELECT j.* FROM dbo.app_state_collection c
-    CROSS APPLY OPENJSON(c.content) r
-    CROSS APPLY OPENJSON(r.[value]) WITH (Codigo NVARCHAR(200) N'$."Código"', Descricao NVARCHAR(MAX) N'$."Descrição"', Modelo NVARCHAR(200) N'$.Modelo', Composicao NVARCHAR(200) N'$."Composição"') j
-    WHERE c.name = N'estrutura' AND r.[type] = 5
+    SELECT x.* FROM (
+        SELECT j.*, ROW_NUMBER() OVER (PARTITION BY j.Codigo COLLATE Latin1_General_100_BIN2 ORDER BY TRY_CAST(r.[key] AS INT)) AS rn
+        FROM dbo.app_state_collection c
+        CROSS APPLY OPENJSON(c.content) r
+        CROSS APPLY OPENJSON(r.[value]) WITH (Codigo NVARCHAR(200) N'$."Código"', Descricao NVARCHAR(MAX) N'$."Descrição"', Modelo NVARCHAR(200) N'$.Modelo', Composicao NVARCHAR(200) N'$."Composição"') j
+        WHERE c.name = N'estrutura' AND r.[type] = 5
+    ) x WHERE x.rn = 1
 )
 SELECT bp.linha, bp.BatteryPassportID AS passaporte_id, bp.BatteryPassportGUID AS passaporte_guid, bp.StatusPassaporte AS status,
        bp.VersaoPassaporte AS versao, bp.CodProduto AS codigo_produto, est.Descricao AS descricao_produto, est.Modelo AS modelo, est.Composicao AS composicao,

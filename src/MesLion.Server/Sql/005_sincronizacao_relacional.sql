@@ -6,7 +6,7 @@
    production_orders, op_steps, op_materials, battery_passports) a partir do
    estado gravado pelo frontend. A fonte de verdade continua sendo o estado:
    as tabelas são uma projeção para consultas, BI e integrações.
-   - Chaves duplicadas: prevalece o último registro (mesma regra do frontend ao localizar).
+   - Chaves duplicadas: prevalece o PRIMEIRO registro (mesma regra do frontend ao localizar: Array.find).
    - Registros-filho sem pai (órfãos) não entram nas tabelas com FK e são listados em rel.qualidade_dados.
    - Equipamentos nunca são excluídos (preserva documentos): ausentes ficam inativos.
    A aplicação chama a procedure em segundo plano após as gravações.
@@ -92,7 +92,7 @@ BEGIN
         ;WITH s AS (
             SELECT code, LEFT(parent_code, 100) AS parent_code,
                    LEFT(product_type, 20) AS product_type, description, LEFT(unit, 30) AS unit, payload,
-                   ROW_NUMBER() OVER (PARTITION BY code ORDER BY idx DESC) AS rn
+                   ROW_NUMBER() OVER (PARTITION BY code ORDER BY idx ASC) AS rn
             FROM #prod WHERE code IS NOT NULL AND LEN(code) <= 100
         )
         MERGE dbo.products AS t
@@ -123,7 +123,7 @@ BEGIN
 
         ;WITH s AS (
             SELECT code, description, LEFT(unit, 30) AS unit, payload,
-                   ROW_NUMBER() OVER (PARTITION BY code ORDER BY idx DESC) AS rn
+                   ROW_NUMBER() OVER (PARTITION BY code ORDER BY idx ASC) AS rn
             FROM #mat WHERE code IS NOT NULL AND LEN(code) <= 100
         )
         MERGE dbo.materials AS t
@@ -149,7 +149,7 @@ BEGIN
 
         ;WITH s AS (
             SELECT code, name, LEFT(tax_id, 40) AS tax_id, payload,
-                   ROW_NUMBER() OVER (PARTITION BY code ORDER BY idx DESC) AS rn
+                   ROW_NUMBER() OVER (PARTITION BY code ORDER BY idx ASC) AS rn
             FROM #sup WHERE code IS NOT NULL AND LEN(code) <= 100
         )
         MERGE dbo.suppliers AS t
@@ -181,7 +181,7 @@ BEGIN
 
         ;WITH s AS (
             SELECT code, name, process, active, payload,
-                   ROW_NUMBER() OVER (PARTITION BY code ORDER BY prioridade ASC, idx DESC) AS rn
+                   ROW_NUMBER() OVER (PARTITION BY code ORDER BY prioridade ASC, idx ASC) AS rn
             FROM #eq WHERE code IS NOT NULL AND LEN(code) <= 100
         )
         MERGE dbo.equipment AS t
@@ -210,7 +210,7 @@ BEGIN
         ;WITH s AS (
             SELECT code, LEFT(product_code, 100) AS product_code,
                    LEFT(version, 50) AS version, payload,
-                   ROW_NUMBER() OVER (PARTITION BY code ORDER BY idx DESC) AS rn
+                   ROW_NUMBER() OVER (PARTITION BY code ORDER BY idx ASC) AS rn
             FROM #rot WHERE code IS NOT NULL AND LEN(code) <= 100
         )
         MERGE dbo.routes AS t
@@ -269,7 +269,7 @@ BEGIN
                LEFT(status, 50) AS status, rel.fn_num(qtd) AS planned_qty, LEFT(unit, 30) AS unit, payload
         INTO #ops_final
         FROM (
-            SELECT *, ROW_NUMBER() OVER (PARTITION BY code ORDER BY idx DESC) AS rn
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY code ORDER BY idx ASC) AS rn
             FROM #ops WHERE code IS NOT NULL AND LEN(code) <= 120
         ) x WHERE rn = 1;
 
@@ -302,7 +302,7 @@ BEGIN
                    CASE WHEN EXISTS (SELECT 1 FROM #ops_final o WHERE o.code = b.op_code)
                         THEN LEFT(b.op_code, 120) END AS op_code,
                    LEFT(b.product_code, 100) AS product_code, b.payload,
-                   ROW_NUMBER() OVER (PARTITION BY b.id ORDER BY b.idx DESC) AS rn
+                   ROW_NUMBER() OVER (PARTITION BY b.id ORDER BY b.idx ASC) AS rn
             FROM #bp b WHERE b.id IS NOT NULL AND LEN(b.id) <= 200
         )
         MERGE dbo.battery_passports AS t
