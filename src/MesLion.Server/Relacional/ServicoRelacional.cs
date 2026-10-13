@@ -152,7 +152,7 @@ WHEN NOT MATCHED THEN INSERT (colecao, nome_view, assinatura, colunas, definicao
                 await sql.ExecutarAsync(async c =>
                 {
                     await using var cmd = sql.Comando(c, @"DECLARE @v NVARCHAR(300) = (SELECT nome_view FROM rel.views_geradas WHERE colecao = @c);
-IF @v IS NOT NULL AND OBJECT_ID(@v, N'V') IS NOT NULL BEGIN DECLARE @s NVARCHAR(400) = N'DROP VIEW ' + @v; EXEC(@s); END;
+IF @v IS NOT NULL AND OBJECT_ID(N'rel.' + QUOTENAME(PARSENAME(@v, 1)), N'V') IS NOT NULL BEGIN DECLARE @s NVARCHAR(400) = N'DROP VIEW rel.' + QUOTENAME(PARSENAME(@v, 1)); EXEC(@s); END;
 DELETE FROM rel.views_geradas WHERE colecao = @c;");
                     PTexto(cmd, "@c", antiga, 200);
                     await cmd.ExecuteNonQueryAsync(ct);

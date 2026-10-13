@@ -106,7 +106,8 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'IX_audit_changed_at' AND
     CREATE INDEX IX_audit_changed_at ON dbo.audit_log(changed_at DESC);
 GO
 
-/* Payload completo (mesmo conteúdo do antigo app_state.payload), reconstruído das coleções */
+/* Payload completo (mesmo conteúdo do antigo app_state.payload), reconstruído das coleções.
+   (name usa collation binária; COLLATE DATABASE_DEFAULT evita conflito com content no STRING_AGG) */
 CREATE OR ALTER VIEW dbo.vw_app_state_payload
 AS
 SELECT
@@ -115,7 +116,7 @@ SELECT
     s.updated_at,
     s.updated_by,
     CAST(N'{' AS NVARCHAR(MAX))
-      + ISNULL((SELECT STRING_AGG(CAST(N'"' + STRING_ESCAPE(c.name, 'json') + N'":' AS NVARCHAR(MAX)) + c.content, N',')
+      + ISNULL((SELECT STRING_AGG(CAST(N'"' + STRING_ESCAPE(c.name COLLATE DATABASE_DEFAULT, 'json') + N'":' AS NVARCHAR(MAX)) + c.content, N',')
                        WITHIN GROUP (ORDER BY c.ordinal, c.name)
                 FROM dbo.app_state_collection c), N'')
       + N'}' AS payload

@@ -97,7 +97,7 @@ BEGIN
         )
         MERGE dbo.products AS t
         USING (SELECT * FROM s WHERE rn = 1) AS s ON t.code = s.code
-        WHEN MATCHED AND t.payload <> s.payload THEN
+        WHEN MATCHED AND t.payload COLLATE Latin1_General_100_BIN2 <> s.payload COLLATE Latin1_General_100_BIN2 THEN
             UPDATE SET parent_code = s.parent_code, product_type = s.product_type, description = s.description, unit = s.unit,
                        payload = s.payload, updated_at = @agora, updated_by = @autor
         WHEN NOT MATCHED BY TARGET THEN
@@ -128,7 +128,7 @@ BEGIN
         )
         MERGE dbo.materials AS t
         USING (SELECT * FROM s WHERE rn = 1) AS s ON t.code = s.code
-        WHEN MATCHED AND t.payload <> s.payload THEN
+        WHEN MATCHED AND t.payload COLLATE Latin1_General_100_BIN2 <> s.payload COLLATE Latin1_General_100_BIN2 THEN
             UPDATE SET description = s.description, unit = s.unit, payload = s.payload, updated_at = @agora, updated_by = @autor
         WHEN NOT MATCHED BY TARGET THEN
             INSERT (code, description, unit, payload, updated_at, updated_by) VALUES (s.code, s.description, s.unit, s.payload, @agora, @autor)
@@ -154,7 +154,7 @@ BEGIN
         )
         MERGE dbo.suppliers AS t
         USING (SELECT * FROM s WHERE rn = 1) AS s ON t.code = s.code
-        WHEN MATCHED AND t.payload <> s.payload THEN
+        WHEN MATCHED AND t.payload COLLATE Latin1_General_100_BIN2 <> s.payload COLLATE Latin1_General_100_BIN2 THEN
             UPDATE SET name = s.name, tax_id = s.tax_id, payload = s.payload, updated_at = @agora, updated_by = @autor
         WHEN NOT MATCHED BY TARGET THEN
             INSERT (code, name, tax_id, payload, updated_at, updated_by) VALUES (s.code, s.name, s.tax_id, s.payload, @agora, @autor)
@@ -186,7 +186,7 @@ BEGIN
         )
         MERGE dbo.equipment AS t
         USING (SELECT * FROM s WHERE rn = 1) AS s ON t.code = s.code
-        WHEN MATCHED AND (t.payload <> s.payload OR t.active <> s.active) THEN
+        WHEN MATCHED AND (t.payload COLLATE Latin1_General_100_BIN2 <> s.payload COLLATE Latin1_General_100_BIN2 OR t.active <> s.active) THEN
             UPDATE SET name = s.name, process = s.process, active = s.active, payload = s.payload, updated_at = @agora, updated_by = @autor
         WHEN NOT MATCHED BY TARGET THEN
             INSERT (code, name, process, active, payload, updated_at, updated_by) VALUES (s.code, s.name, s.process, s.active, s.payload, @agora, @autor)
@@ -215,7 +215,7 @@ BEGIN
         )
         MERGE dbo.routes AS t
         USING (SELECT * FROM s WHERE rn = 1) AS s ON t.code = s.code
-        WHEN MATCHED AND t.payload <> s.payload THEN
+        WHEN MATCHED AND t.payload COLLATE Latin1_General_100_BIN2 <> s.payload COLLATE Latin1_General_100_BIN2 THEN
             UPDATE SET product_code = s.product_code, version = s.version, payload = s.payload, updated_at = @agora, updated_by = @autor
         WHEN NOT MATCHED BY TARGET THEN
             INSERT (code, product_code, version, payload, updated_at, updated_by) VALUES (s.code, s.product_code, s.version, s.payload, @agora, @autor)
@@ -275,7 +275,7 @@ BEGIN
 
         MERGE dbo.production_orders AS t
         USING #ops_final AS s ON t.code = s.code
-        WHEN MATCHED AND t.payload <> s.payload THEN
+        WHEN MATCHED AND t.payload COLLATE Latin1_General_100_BIN2 <> s.payload COLLATE Latin1_General_100_BIN2 THEN
             UPDATE SET product_code = s.product_code, parent_op = s.parent_op, route_code = s.route_code, status = s.status,
                        planned_qty = s.planned_qty, unit = s.unit, payload = s.payload, updated_at = @agora, updated_by = @autor
         WHEN NOT MATCHED BY TARGET THEN
@@ -307,7 +307,7 @@ BEGIN
         )
         MERGE dbo.battery_passports AS t
         USING (SELECT * FROM s WHERE rn = 1) AS s ON t.id = s.id
-        WHEN MATCHED AND (t.payload <> s.payload OR ISNULL(t.op_code, N'') <> ISNULL(s.op_code, N'')) THEN
+        WHEN MATCHED AND (t.payload COLLATE Latin1_General_100_BIN2 <> s.payload COLLATE Latin1_General_100_BIN2 OR ISNULL(t.op_code, N'') <> ISNULL(s.op_code, N'')) THEN
             UPDATE SET op_code = s.op_code, product_code = s.product_code, payload = s.payload, updated_at = @agora, updated_by = @autor
         WHEN NOT MATCHED BY TARGET THEN
             INSERT (id, op_code, product_code, payload, updated_at, updated_by) VALUES (s.id, s.op_code, s.product_code, s.payload, @agora, @autor)
