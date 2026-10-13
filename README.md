@@ -38,7 +38,8 @@ Requisitos: .NET 10 SDK.
 
 ```powershell
 dotnet run --project src/MesLion.Server -- --urls http://127.0.0.1:8765      # modo Portátil ou LocalDB detectado
-dotnet publish src/MesLion.Server -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publicar/app
+dotnet publish src/MesLion.Server -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=true `
+    -p:EnableCompressionInSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false -p:DebugType=none -o publicar/app   # executável enxuto (~21 MB)
 dotnet run -c Release --project tests/MesLion.Testes                         # testes de unidade
 ```
 

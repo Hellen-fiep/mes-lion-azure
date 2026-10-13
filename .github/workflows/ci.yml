@@ -120,6 +120,17 @@ jobs:
           cd ../..
           python tests/ab_comparar_telas.py http://127.0.0.1:8766 http://127.0.0.1:8767 out/ab_resultado.json http://127.0.0.1:8768 2>&1 | tee out/ab_telas.log
 
+      - name: Primeira tela após o login — todas as opções do menu, sem erro JavaScript (SQL Server)
+        run: |
+          cd out/app
+          export ConnectionStrings__MesLion="Server=localhost,1433;Database=MesLionPT;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true"
+          export MesLion__Banco__Provedor=SqlServer
+          export MesLion__Arquivos__PastaLocal=../DadosPT/Arquivos
+          nohup ./MesLion.Server --urls http://127.0.0.1:8769 > ../server_pt.log 2>&1 &
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8769/healthz && break; sleep 1; done
+          cd ../..
+          python tests/primeira_tela.py http://127.0.0.1:8769 2>&1 | tee out/primeira_tela.log
+
       - name: Migração PostgreSQL → SQL Server (script de exportação + importação)
         env:
           PGHOST: localhost

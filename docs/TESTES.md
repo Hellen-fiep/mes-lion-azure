@@ -14,10 +14,18 @@ Repositório `Hellen-fiep/mes-lion-azure`, branch `main`, commit indicado em `ev
 | API — contrato HTTP completo (`tests/testes_api.py`) | Linux + **SQL Server 2022** | **95/95** |
 | Banco SQL Server — esquema, camada relacional, views, FKs (`tests/verificar_sqlserver.py`) | SQL Server 2022 | **45/45** |
 | Fluxos no navegador — Chromium/Playwright (`tests/e2e_fluxos.py`) | SQL Server 2022, acesso local e remoto | **25/25** |
+| **Primeira tela após o login** — cada opção do menu aberta logo após o login e após F5 (`tests/primeira_tela.py`) | SQL Server 2022 | **32/32 sem erro JavaScript** (no MES antigo, ACV e LCC falhavam) |
 | **A/B de telas** — servidor original × servidor novo (`tests/ab_comparar_telas.py`) | frontend original + contrato PowerShell × ASP.NET Core + SQL Server | **32/32**: 30 telas idênticas ao original; ACV e LCC idênticas ao original com as coleções inicializadas e sem erro |
 | Migração PostgreSQL → SQL Server (`tests/teste_migracao.py`) | PostgreSQL 16 (schema original) → SQL Server 2022 | **25/25** |
 | API com o **executável Windows**, modo Portátil | Windows Server 2022 | **95/95** |
-| API com o **executável Windows**, **LocalDB detectado automaticamente** | Windows Server 2022 + LocalDB | **95/95** |
+| API com o **executável Windows**, **LocalDB detectado automaticamente** | Windows Server 2022 + LocalDB | **95/95**, camada relacional gerada no LocalDB |
+| Fluxos no navegador com o **executável Windows** (inclui ACV e LCC) | Windows Server 2022, modo Portátil | **24/24** |
+| Importação de pacote de migração com o **executável Windows** (`tests/teste_importacao_pacote.py`) | Windows Server 2022 | **7/7** |
+| Frontend publicado × original (`MANIFESTO_FRONTEND.txt`) | executável Windows | **44 arquivos** conferidos byte a byte |
+
+O executável Windows (`app\MesLion.Server.exe`, ~21 MB) é autocontido e enxuto: o .NET vai junto, com o código não
+usado do .NET/ASP.NET Core removido na publicação (*trimming* parcial); o código do MES, o `Microsoft.Data.SqlClient` e as
+bibliotecas de login Microsoft são mantidos inteiros. É exatamente esse arquivo que passou pelas suítes do Windows acima.
 
 Arquivos de evidência (pasta `docs/evidencias` do pacote): `ab_resultado.json` (comparação tela a tela, com
 hash do HTML de cada tela nos dois servidores) e os logs de cada suíte.
@@ -45,6 +53,10 @@ inventário de custos, cenário e cálculo), início de apontamento de tempo, gr
 usuário, Criar backup, Exportar banco, histórico, logout, perfil USER sem administração, Restaurar dados iniciais com
 backup antes, **nenhum erro JavaScript** (sem exceções conhecidas) e, por acesso remoto (IP da máquina), envio do estado
 compactado (gzip).
+
+**Primeira tela após o login (32)** — para cada opção do menu, uma sessão nova do navegador faz login e abre essa
+tela primeiro; depois recarrega a página (F5) e abre de novo. Nenhuma pode gerar erro JavaScript. É o cenário em que
+ACV e LCC falhavam no MES LION 1.0 PGSQL (o mesmo teste aponta as duas falhas no servidor sem a correção).
 
 **A/B de telas (32)** — o mesmo conjunto de dados é aberto no servidor de referência (contrato do
 `MES_LION_SERVER.ps1` com o frontend original) e no servidor novo; o teste percorre **todas** as opções do menu e
