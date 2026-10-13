@@ -150,6 +150,7 @@ Como no MES original, a última gravação prevalece se duas pessoas alterarem o
 | Primeira abertura lenta com LocalDB | criação da instância e do banco | aguarde 1–2 minutos; as próximas aberturas são rápidas |
 | Outros PCs não acessam no modo rede | firewall do Windows / rede corporativa | liberar TCP 8765 de entrada; confirme o IP mostrado na janela |
 | Tela em branco ou com versão antiga | cache do navegador | **Ctrl+F5** |
+| Faixa vermelha "ERRO NO MES LION — Falha ao carregar script ..." | um arquivo do frontend não chegou ao navegador: ficou fora da extração, foi removido pelo antivírus ou bloqueado por uma extensão do navegador | extraia o pacote de novo numa pasta nova; a janela do servidor mostra "Arquivo do frontend não encontrado: ..." quando o arquivo falta na pasta; se ele existir, teste numa janela anônima (sem extensões) |
 | Quero recomeçar do zero (modo Portátil) | — | feche o MES e apague `Dados\BancoPortatil` e `Dados\Arquivos`; na próxima abertura a base inicial é recarregada |
 | Quero recomeçar do zero (SQL Server) | — | apague o banco `MesLion` (ou use outro nome no `CONFIGURAR_BANCO.bat`) |
 

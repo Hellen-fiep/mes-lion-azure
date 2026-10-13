@@ -6,7 +6,7 @@ do menu e compara título, subtítulo e o HTML renderizado de cada tela.
 Uso: python ab_comparar_telas.py <url_referencia> <url_nova> <saida.json> [url_referencia_com_colecoes]
 
 Telas corrigidas (ACV e LCC): no original elas dão erro porque as coleções criadas pelos módulos antes do
-login se perdem quando o estado vem do servidor. O servidor novo traz a correção (js/mes_correcao_colecoes.js).
+login se perdem quando o estado vem do servidor. O servidor novo traz a correção (no adaptador js/mes_plataforma_azure.js).
 Para essas telas a comparação é feita com o MESMO frontend original servindo um estado que já contém essas
 coleções vazias (url_referencia_com_colecoes): a tela nova precisa ser idêntica e sem erro JavaScript.
 """

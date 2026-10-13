@@ -247,7 +247,17 @@ ApiBanco.Mapear(app);
 // Rotas /api desconhecidas: 401 sem sessão, 404 "API não encontrada" com sessão (como no servidor original).
 app.Map("/api/{**resto}", async (HttpContext ctx, ServicoUsuarios usuarios) =>
     await usuarios.AtualAsync(ctx) is null ? Respostas.NaoAutenticado() : Respostas.Texto("API não encontrada", 404));
-app.MapFallback("{**caminho}", () => Respostas.Texto("Não encontrado", 404)); // inclui caminhos com extensão
+app.MapFallback("{**caminho}", (HttpContext ctx, ILoggerFactory lf) => // inclui caminhos com extensão
+{
+    // Arquivo do frontend ausente (ex.: removido pelo antivírus ou por uma extração incompleta do pacote): avisa na janela do servidor.
+    string caminho = ctx.Request.Path.Value ?? "";
+    if (caminho.StartsWith("/js/", StringComparison.OrdinalIgnoreCase) || caminho.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase)
+        || caminho.EndsWith(".css", StringComparison.OrdinalIgnoreCase))
+        lf.CreateLogger("MesLion.Frontend").LogWarning(
+            "Arquivo do frontend não encontrado: {Caminho} (pasta {Pasta}). Se ele faz parte do pacote, extraia o pacote de novo e verifique se o antivírus o removeu.",
+            caminho, app.Environment.WebRootPath);
+    return Respostas.Texto("Não encontrado", 404);
+});
 
 // ---------------------------------------------------------------- início
 var vida = app.Services.GetRequiredService<IHostApplicationLifetime>();

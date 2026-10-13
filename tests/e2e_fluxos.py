@@ -16,7 +16,7 @@ BASE = sys.argv[1].rstrip('/')
 REMOTA = sys.argv[2].rstrip('/') if len(sys.argv) > 2 else None
 CHROME = os.environ.get('MES_CHROME') or ('/opt/pw-browsers/chromium-1194/chrome-linux/chrome' if os.path.exists('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') else None)
 falhas, total = [], 0
-ERROS_CONHECIDOS = ()  # nenhum: o erro herdado de ACV/LCC foi corrigido (js/mes_correcao_colecoes.js)
+ERROS_CONHECIDOS = ()  # nenhum: o erro herdado de ACV/LCC foi corrigido (js/mes_plataforma_azure.js)
 SEL_ULTIMO = "(s=>{s.selectedIndex=s.options.length-1;s.dispatchEvent(new Event('change'))})(document.getElementById('%s'))"
 
 

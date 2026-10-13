@@ -5,7 +5,7 @@ tela como a primeira; depois recarrega a página (F5, sessão mantida) e abre a 
 Nenhuma tela pode gerar erro JavaScript.
 
 No MES LION 1.0 PGSQL, ACV e LCC falhavam exatamente nesse cenário (coleções criadas pelos módulos ao carregar
-a página eram perdidas quando o estado vinha do servidor) — corrigido em js/mes_correcao_colecoes.js.
+a página eram perdidas quando o estado vinha do servidor) — corrigido no adaptador js/mes_plataforma_azure.js.
 
 Uso: python primeira_tela.py <url_base> [id_do_menu ...]   (sem ids: todas as opções do menu)
 Requisitos: pip install playwright  (e um Chromium: python -m playwright install chromium)

@@ -106,7 +106,7 @@ jobs:
           mkdir -p out/frontend_original
           cp -r src/MesLion.Server/wwwroot/* out/frontend_original/
           cp tests/referencia_frontend_original/index.html out/frontend_original/index.html
-          rm out/frontend_original/js/mes_plataforma_azure.js out/frontend_original/js/mes_correcao_colecoes.js
+          rm out/frontend_original/js/mes_plataforma_azure.js   # adaptador de plataforma (inclui a correção de ACV/LCC)
           nohup python tests/servidor_referencia_contrato_ps.py --root out/frontend_original --seed out/Dados/MES_LION_DATA.json --port 8766 > out/ref.log 2>&1 &
           # referência das telas corrigidas (ACV/LCC): frontend original + estado com as coleções do módulo inicializadas
           python tests/seed_com_colecoes.py out/Dados/MES_LION_DATA.json out/seed_com_colecoes.json

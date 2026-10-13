@@ -14,10 +14,9 @@ Por isso a migração para o ecossistema Microsoft foi feita como **troca de pla
 * os **arquivos** (documentos, anexos, backups) vão para o **Azure Blob Storage** (ou pasta local);
 * a **hospedagem** pode ser o **Azure App Service** ou um PC/servidor Windows (executável autocontido).
 
-Arquivos do frontend alterados: apenas `index.html` (título da aba + inclusão de dois scripts novos, carregados depois
-de todos os originais):
-* `js/mes_plataforma_azure.js` — adaptador de plataforma, sem regra de negócio;
-* `js/mes_correcao_colecoes.js` — correção do erro herdado de **ACV e LCC** (seção 7), sem alterar registros nem cálculos.
+Arquivos do frontend alterados: apenas `index.html` (título da aba + inclusão de um script novo, carregado depois
+de todos os originais): `js/mes_plataforma_azure.js` — adaptador de plataforma, sem regra de negócio, que também traz a
+correção do erro herdado de **ACV e LCC** (seção 7), sem alterar registros nem cálculos.
 
 ## 2. Antes e depois
 
@@ -138,7 +137,7 @@ recebe os dados iniciais de `Dados/MES_LION_DATA.json` — ou os dados migrados 
   (`acv_estudos`, `acv_cenarios`, `acv_resultados`, `acv_icv_salvos`, `lcc_estudos`, `lcc_cenarios`, `lcc_resultados`,
   `apontamento_tempos`, `op_pi_consumos`, `pi_lotes`) ao carregar a página, mas o estado vindo do servidor substituía o
   objeto `data` logo depois (no login e ao recarregar) e essas coleções desapareciam. Resultado: erro ao abrir ACV e LCC,
-  ao salvar estudos/ICV e ao iniciar um apontamento de tempo. `js/mes_correcao_colecoes.js` recria apenas as coleções
+  ao salvar estudos/ICV e ao iniciar um apontamento de tempo. O adaptador (`js/mes_plataforma_azure.js`) recria apenas as coleções
   ausentes, vazias, com a mesma regra dos módulos (`data.X = data.X || []`). Não executa as cargas de demonstração dos
   patches (OPs de validação, ICV/AICV de benchmark, dados de teste do WIP), que também nunca chegavam ao banco do PGSQL,
   para não alterar OPs nem resultados existentes. O teste A/B confirma: ACV e LCC ficam idênticas ao que o código original

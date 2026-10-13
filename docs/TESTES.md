@@ -62,7 +62,7 @@ ACV e LCC falhavam no MES LION 1.0 PGSQL (o mesmo teste aponta as duas falhas no
 `MES_LION_SERVER.ps1` com o frontend original) e no servidor novo; o teste percorre **todas** as opções do menu e
 compara título, subtítulo e o HTML renderizado de cada tela (normalizando apenas datas/horas e identificadores
 gerados na hora). Resultado: as 30 telas sem correção são idênticas ao original. **ACV e LCC**, que no original davam erro
-JavaScript, foram corrigidas (`js/mes_correcao_colecoes.js`); para elas a referência é o **mesmo frontend original**
+JavaScript, foram corrigidas (no adaptador `js/mes_plataforma_azure.js`); para elas a referência é o **mesmo frontend original**
 servindo um estado que já contém as coleções vazias que o módulo cria (`tests/seed_com_colecoes.py`) — a tela nova é
 idêntica a essa referência e não tem erro JavaScript.
 
