@@ -26,6 +26,9 @@ jobs:
     name: Linux — SQL Server 2022 + PostgreSQL 16
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
     services:
       mssql:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -64,7 +67,9 @@ jobs:
           pwsh --version && psql --version
 
       - name: Testes de unidade
-        run: dotnet run -c Release --project tests/MesLion.Testes
+        run: |
+          mkdir -p out
+          dotnet run -c Release --project tests/MesLion.Testes 2>&1 | tee out/testes_unidade.log
 
       - name: Publicar (Linux e pacote Azure App Service)
         run: |
@@ -81,17 +86,17 @@ jobs:
           export MesLion__Banco__Provedor=SqlServer
           export MesLion__Relacional__AtrasoSegundos=2
           nohup ./MesLion.Server --urls http://127.0.0.1:8765 > ../server_sql.log 2>&1 &
-          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8765/healthz && break; sleep 1; done
-          echo; curl -sf http://127.0.0.1:8765/healthz
+          for i in $(seq 1 180); do curl -sf http://127.0.0.1:8765/healthz && break; sleep 1; done
+          echo; curl -sf http://127.0.0.1:8765/healthz | tee ../healthz_sql.json || { tail -n 200 ../server_sql.log; exit 1; }
 
       - name: Testes de API (SQL Server)
-        run: python tests/testes_api.py http://127.0.0.1:8765 out/Dados/MES_LION_DATA.json
+        run: python tests/testes_api.py http://127.0.0.1:8765 out/Dados/MES_LION_DATA.json 2>&1 | tee out/testes_api_sql.log
 
       - name: Verificação do banco SQL Server (esquema, camada relacional, views, FKs)
-        run: python tests/verificar_sqlserver.py localhost 1433 sa "$SA_PASSWORD" MesLionCI http://127.0.0.1:8765
+        run: python tests/verificar_sqlserver.py localhost 1433 sa "$SA_PASSWORD" MesLionCI http://127.0.0.1:8765 2>&1 | tee out/verificar_sqlserver.log
 
       - name: Testes ponta a ponta no navegador (SQL Server)
-        run: python tests/e2e_fluxos.py http://127.0.0.1:8765
+        run: python tests/e2e_fluxos.py http://127.0.0.1:8765 2>&1 | tee out/e2e_sql.log
 
       - name: A/B de telas — servidor original (contrato PowerShell) x servidor novo (SQL Server)
         run: |
@@ -107,7 +112,7 @@ jobs:
           nohup ./MesLion.Server --urls http://127.0.0.1:8767 > ../server_ab.log 2>&1 &
           for i in $(seq 1 120); do curl -sf http://127.0.0.1:8767/healthz && curl -s http://127.0.0.1:8766/ > /dev/null && break; sleep 1; done
           cd ../..
-          python tests/ab_comparar_telas.py http://127.0.0.1:8766 http://127.0.0.1:8767 out/ab_resultado.json
+          python tests/ab_comparar_telas.py http://127.0.0.1:8766 http://127.0.0.1:8767 out/ab_resultado.json 2>&1 | tee out/ab_telas.log
 
       - name: Migração PostgreSQL → SQL Server (script de exportação + importação)
         env:
@@ -115,13 +120,26 @@ jobs:
           PGPORT: "5432"
           PGUSER: postgres
           PGPASSWORD: postgres
-        run: python tests/teste_migracao.py out/app tests/dados_teste/MES_LION_DATA_TESTE.json "Server=localhost,1433;Database=MesLionMig;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true"
+        run: python tests/teste_migracao.py out/app tests/dados_teste/MES_LION_DATA_TESTE.json "Server=localhost,1433;Database=MesLionMig;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true" 2>&1 | tee out/migracao.log
 
       - name: Logs do servidor
         if: always()
         run: |
           tail -n 80 out/server_sql.log || true
           tail -n 40 out/server_ab.log || true
+
+      - name: Diagnóstico — publicar logs no release "ci-diagnostico"
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p diag
+          cp out/*.log out/*.json diag/ 2>/dev/null || true
+          find out -maxdepth 3 -name "*.log" -path "*Dados*" -exec cp {} diag/ \; 2>/dev/null || true
+          echo "${{ github.sha }} ${{ job.status }}" > diag/execucao.txt
+          (cd diag && zip -qr ../diagnostico-linux.zip .)
+          gh release create ci-diagnostico --repo "$GITHUB_REPOSITORY" --title "Diagnóstico do CI" --notes "Logs da última execução do CI (não é um pacote para uso)." --prerelease --target "$GITHUB_SHA" 2>/dev/null || true
+          for t in 1 2 3; do gh release upload ci-diagnostico diagnostico-linux.zip --repo "$GITHUB_REPOSITORY" --clobber && break; sleep 5; done
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -163,7 +181,7 @@ jobs:
           $env:MesLion__Banco__Provedor = 'Portatil'
           $p = Start-Process -FilePath "$PWD/out/win-x64/app/MesLion.Server.exe" -ArgumentList '--urls','http://127.0.0.1:8765' -WorkingDirectory "$PWD/out/win-x64/app" -PassThru -RedirectStandardOutput out/win_portatil.log -RedirectStandardError out/win_portatil_err.log
           for ($i = 0; $i -lt 120; $i++) { try { Invoke-RestMethod http://127.0.0.1:8765/healthz | Out-Null; break } catch { Start-Sleep 1 } }
-          python tests/testes_api.py http://127.0.0.1:8765 out/win-x64/Dados/MES_LION_DATA.json
+          python tests/testes_api.py http://127.0.0.1:8765 out/win-x64/Dados/MES_LION_DATA.json 2>&1 | Tee-Object -FilePath out/testes_api_win_portatil.log
           $codigo = $LASTEXITCODE
           Stop-Process -Id $p.Id -Force
           Remove-Item out/win-x64/Dados/BancoPortatil, out/win-x64/Dados/Arquivos -Recurse -Force -ErrorAction SilentlyContinue
@@ -187,7 +205,7 @@ jobs:
           $info = Invoke-RestMethod http://127.0.0.1:8765/healthz
           Write-Host "Provedor: $($info.banco)"
           if ($info.banco -ne 'SqlServer') { Get-Content out/win_localdb.log; throw 'LocalDB não foi detectado/usado.' }
-          python tests/testes_api.py http://127.0.0.1:8765 out/win-x64/Dados/MES_LION_DATA.json
+          python tests/testes_api.py http://127.0.0.1:8765 out/win-x64/Dados/MES_LION_DATA.json 2>&1 | Tee-Object -FilePath out/testes_api_win_localdb.log
           $codigo = $LASTEXITCODE
           Stop-Process -Id $p.Id -Force
           Get-Content out/win_localdb.log -Tail 30
@@ -200,6 +218,21 @@ jobs:
           Remove-Item out/win-x64/Dados -Recurse -Force -ErrorAction SilentlyContinue
           Compress-Archive -Path out/win-x64/app/* -DestinationPath out/MES_LION_AZURE_win-x64_app.zip -Force
           Get-ChildItem out/win-x64/app | Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Diagnóstico — publicar logs no release "ci-diagnostico"
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory diag -Force | Out-Null
+          Copy-Item out/*.log diag/ -ErrorAction SilentlyContinue
+          Get-ChildItem out/win-x64/app -ErrorAction SilentlyContinue | Select-Object Name, Length | Out-File diag/arquivos_app.txt
+          "${{ github.sha }} ${{ job.status }}" | Out-File diag/execucao.txt
+          Compress-Archive -Path diag/* -DestinationPath diagnostico-windows.zip -Force
+          gh release create ci-diagnostico --repo "$env:GITHUB_REPOSITORY" --title "Diagnóstico do CI" --notes "Logs da última execução do CI (não é um pacote para uso)." --prerelease --target "$env:GITHUB_SHA" 2>$null
+          for ($t = 1; $t -le 3; $t++) { gh release upload ci-diagnostico diagnostico-windows.zip --repo "$env:GITHUB_REPOSITORY" --clobber; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 5 }
+          exit 0
 
       - uses: actions/upload-artifact@v4
         if: always()
