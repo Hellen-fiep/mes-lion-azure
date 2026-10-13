@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>MesLion.Server</RootNamespace>
+    <AssemblyName>MesLion.Server</AssemblyName>
+    <Version>1.0.0</Version>
+    <InformationalVersion>1.0.0-azure</InformationalVersion>
+    <Product>MES LION — Microsoft Azure / SQL Server</Product>
+    <Company>MES LION</Company>
+    <Description>Servidor ASP.NET Core do MES LION (substitui o servidor PowerShell/PostgreSQL).</Description>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <SatelliteResourceLanguages>pt-BR</SatelliteResourceLanguages>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <PublishReadyToRun>false</PublishReadyToRun>
+  </PropertyGroup>
+
+  <!-- Provedor oficial do SQL Server / Azure SQL. A camada de dados usa ADO.NET (DbProviderFactory),
+       então o projeto também compila sem o pacote (-p:MesOffline=true), funcionando no modo Portátil. -->
+  <ItemGroup Condition="'$(MesOffline)' != 'true'">
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Sql\*.sql" />
+    <None Include="Sql\*.sql" CopyToOutputDirectory="Never" />
+  </ItemGroup>
+
+</Project>

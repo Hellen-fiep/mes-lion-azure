@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Testes de unidade sem dependências externas (executável de console). Uso: dotnet run -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Compile Include="..\..\src\MesLion.Server\Seguranca\BCryptLegado.cs" Link="Fontes\BCryptLegado.cs" />
+    <Compile Include="..\..\src\MesLion.Server\Seguranca\BlowfishConstantes.cs" Link="Fontes\BlowfishConstantes.cs" />
+    <Compile Include="..\..\src\MesLion.Server\Seguranca\SenhaHasher.cs" Link="Fontes\SenhaHasher.cs" />
+    <Compile Include="..\..\src\MesLion.Server\Estado\JsonEstado.cs" Link="Fontes\JsonEstado.cs" />
+    <Compile Include="..\..\src\MesLion.Server\Persistencia\Contratos.cs" Link="Fontes\Contratos.cs" />
+    <Compile Include="..\..\src\MesLion.Server\Relacional\GeradorViews.cs" Link="Fontes\GeradorViews.cs" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MES LION V39 — Fluxo estilo Bizagi</title>
+<style>
+:root{--bg:#eef3f8;--ink:#18324a;--muted:#66788a;--line:#6f8cab;--panel:#fff;--accent:#1769aa;--accent2:#1b8f72}
+*{box-sizing:border-box}
+body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:#dfe7ef;color:var(--ink)}
+header{position:sticky;top:0;z-index:50;background:#0e2b44;color:#fff;padding:14px 18px;box-shadow:0 3px 12px #0003}
+h1{font-size:22px;margin:0}
+.sub{font-size:12px;opacity:.8;margin-top:4px}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+button,input{font:inherit}
+button{border:1px solid #4b7ca3;background:#174867;color:#fff;padding:7px 10px;border-radius:7px;cursor:pointer}
+button:hover{background:#1b5c82}
+input{min-width:260px;flex:1;padding:8px 10px;border-radius:7px;border:1px solid #5a7894}
+.viewport{overflow:auto;height:calc(100vh - 112px);background:#cfd9e4}
+.canvas{position:relative;width:1550px;height:1280px;margin:20px;background:#f7f9fb;border:1px solid #afbecd;box-shadow:0 10px 35px #0002}
+.lane{position:absolute;left:0;width:100%;border-top:1px solid #a9b8c7;border-bottom:1px solid #a9b8c7;background:linear-gradient(90deg,#edf2f7 0,#f9fbfd 12%,#fff 100%)}
+.lane-label{position:absolute;left:0;top:0;bottom:0;width:54px;background:#d8e4ef;border-right:1px solid #9eb1c2;display:flex;align-items:center;justify-content:center;writing-mode:vertical-rl;transform:rotate(180deg);font-weight:700;font-size:12px;letter-spacing:.5px;color:#24435e}
+.node{position:absolute;width:210px;min-height:72px;background:#fff;border:2px solid #54789a;border-radius:10px;box-shadow:0 3px 10px #0002;z-index:5;cursor:pointer;transition:.15s}
+.node:hover{transform:translateY(-1px);box-shadow:0 5px 16px #0003}
+.node.selected{border-color:#1e9a75;box-shadow:0 0 0 3px #1e9a7528,0 5px 18px #0003}
+.node.filtered{opacity:.14}
+.node-head{background:#e8f1f9;border-bottom:1px solid #b4c8da;border-radius:8px 8px 0 0;padding:7px 9px;font-size:13px;font-weight:700}
+.node-body{padding:7px 9px;font-size:11px;color:#53687a;line-height:1.35}
+svg{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
+.edge{fill:none;stroke:#6c8aaa;stroke-width:2;marker-end:url(#arrow)}
+.edge.active{stroke:#1c9a76;stroke-width:3.4}
+.edge.dim{opacity:.08}
+.edge-label{font-size:10px;fill:#415c73;paint-order:stroke;stroke:#fff;stroke-width:4px;stroke-linejoin:round}
+.edge-label.dim{opacity:.08}
+.panel{position:fixed;right:16px;bottom:16px;width:360px;max-height:70vh;overflow:auto;background:#fff;border:1px solid #9fb1c1;border-radius:12px;box-shadow:0 12px 35px #0004;z-index:80;padding:14px;display:none}
+.panel.show{display:block}
+.panel h2{font-size:17px;margin:0 0 6px}
+.panel .small{font-size:11px;color:#788a9a;margin-bottom:8px}
+.panel h3{font-size:11px;text-transform:uppercase;color:#1769aa;margin:12px 0 5px}
+.panel ul{padding-left:18px;margin:0}
+.panel li{font-size:12px;margin:4px 0}
+.close{float:right;border:0;background:#e9eef4;color:#29455e;padding:4px 8px}
+.legend{font-size:11px;color:#dbe8f3;margin-top:7px}
+</style>
+</head>
+<body>
+<header>
+  <h1>MES LION V39 — Fluxo de Integração de Dados</h1>
+  <div class="sub">Visualização estilo Bizagi com raias, conexões direcionais e rastreabilidade entre módulos</div>
+  <div class="toolbar">
+    <input id="search" placeholder="Pesquisar módulo…">
+    <button onclick="resetView()">Mostrar tudo</button>
+    <button onclick="focusPath()">Destacar caminho principal</button>
+  </div>
+  <div class="legend">Clique em um bloco para destacar todas as entradas e saídas relacionadas.</div>
+</header>
+
+<div class="viewport">
+  <div class="canvas" id="canvas">
+    <svg id="svg" viewBox="0 0 1550 1280" preserveAspectRatio="none">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#6c8aaa"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+</div>
+
+<div class="panel" id="panel"></div>
+
+<script>
+const nodes=[{"lane": "Cadastros Mestres", "id": "materiais", "title": "Cadastro de Materiais", "x": 80, "y": 80, "desc": "Código, descrição, unidade, categoria, fator de conversão. Origem dos materiais."}, {"lane": "Cadastros Mestres", "id": "entradas", "title": "Entradas de Materiais", "x": 330, "y": 80, "desc": "Fornecedor, NF, quantidade, valor, lote e custo unitário."}, {"lane": "Cadastros Mestres", "id": "lotes", "title": "Lotes / Estoque", "x": 580, "y": 80, "desc": "Saldo por lote e custo unitário efetivo."}, {"lane": "Cadastros Mestres", "id": "recursos", "title": "Recursos / Equipamentos", "x": 830, "y": 80, "desc": "Potência, capacidade, custo-hora e parâmetros."}, {"lane": "Cadastros Mestres", "id": "processos", "title": "Processos", "x": 1080, "y": 80, "desc": "Mistura, coating, corte, montagem, formação, testes etc."}, {"lane": "Engenharia", "id": "estrutura", "title": "Estrutura do Produto", "x": 80, "y": 260, "desc": "Árvore PA → PIs. Cada PA/PI terá sua própria OP."}, {"lane": "Engenharia", "id": "formulacao", "title": "Formulações", "x": 330, "y": 260, "desc": "Percentuais de cátodo, ânodo e eletrólito. Não define massa total."}, {"lane": "Engenharia", "id": "roteiro", "title": "Roteiro de Fabricação", "x": 650, "y": 260, "desc": "Base quantitativa para 1 PA final. Etapas + recursos + materiais + tempos."}, {"lane": "Planejamento / Produção", "id": "gerarop", "title": "Gerar Família de OPs", "x": 80, "y": 470, "desc": "Seleciona PA, roteiro, formulação e quantidade. Gera OP PA + OPs PI."}, {"lane": "Planejamento / Produção", "id": "oppa", "title": "OP Mãe — PA", "x": 390, "y": 470, "desc": "Produto final, quantidade planejada, dados congelados."}, {"lane": "Planejamento / Produção", "id": "oppi", "title": "OPs Filhas — PI", "x": 690, "y": 470, "desc": "Uma OP para cada produto intermediário da estrutura."}, {"lane": "Planejamento / Produção", "id": "apont", "title": "Apontamentos", "x": 990, "y": 470, "desc": "Produção, tempo real, material, lote, consumo, devolução e operador."}, {"lane": "Planejamento / Produção", "id": "perdas", "title": "Perdas", "x": 1260, "y": 470, "desc": "Material/lote/quantidade perdida/motivo."}, {"lane": "Custos / Análise", "id": "custos", "title": "Custos Industriais", "x": 120, "y": 700, "desc": "Materiais + energia + MOD + perdas. Consolida PA + todas as OPs filhas."}, {"lane": "Custos / Análise", "id": "sim", "title": "Simulações", "x": 450, "y": 700, "desc": "Parte do custo consolidado da família. Permite alterar quantidade e formulação."}, {"lane": "Custos / Análise", "id": "acv", "title": "ACV", "x": 760, "y": 700, "desc": "Massas efetivas + energia + fatores ambientais."}, {"lane": "Custos / Análise", "id": "lcc", "title": "LCC", "x": 980, "y": 700, "desc": "Custos consolidados do ciclo/processo."}, {"lane": "Rastreabilidade / Cliente", "id": "pass", "title": "Passaporte da Bateria", "x": 250, "y": 920, "desc": "OP PA encerrada + família + materiais + lotes + resultados + imagens."}, {"lane": "Rastreabilidade / Cliente", "id": "qr", "title": "QR Code", "x": 640, "y": 920, "desc": "Link para PDF/relatório publicado."}, {"lane": "Rastreabilidade / Cliente", "id": "dash", "title": "Dashboard Cliente", "x": 940, "y": 920, "desc": "Dados técnicos e rastreabilidade. Sem custos."}, {"lane": "Rastreabilidade / Cliente", "id": "dashint", "title": "Dashboard Interno", "x": 1220, "y": 920, "desc": "Indicadores internos, incluindo custos e desempenho."}, {"lane": "Infraestrutura", "id": "banco", "title": "Banco Persistente V39", "x": 550, "y": 1130, "desc": "Persistência central, histórico, importação/exportação e backups."}];
+const edges=[{"from": "materiais", "to": "entradas", "label": "identifica material"}, {"from": "entradas", "to": "lotes", "label": "gera lote + saldo"}, {"from": "materiais", "to": "formulacao", "label": "componentes disponíveis"}, {"from": "materiais", "to": "roteiro", "label": "material base"}, {"from": "recursos", "to": "roteiro", "label": "equipamento + potência + pessoas"}, {"from": "processos", "to": "roteiro", "label": "processo da etapa"}, {"from": "estrutura", "to": "roteiro", "label": "PA/PI por etapa"}, {"from": "estrutura", "to": "gerarop", "label": "árvore PA/PI"}, {"from": "roteiro", "to": "gerarop", "label": "base quantitativa"}, {"from": "formulacao", "to": "gerarop", "label": "percentuais de massa"}, {"from": "gerarop", "to": "oppa", "label": "gera"}, {"from": "gerarop", "to": "oppi", "label": "gera"}, {"from": "oppa", "to": "apont", "label": "planejado"}, {"from": "oppi", "to": "apont", "label": "planejado"}, {"from": "lotes", "to": "apont", "label": "lotes disponíveis"}, {"from": "apont", "to": "perdas", "label": "origem de perdas"}, {"from": "oppa", "to": "custos", "label": "custo próprio PA"}, {"from": "oppi", "to": "custos", "label": "custos PIs"}, {"from": "apont", "to": "custos", "label": "consumo + tempo real"}, {"from": "perdas", "to": "custos", "label": "custo das perdas"}, {"from": "entradas", "to": "custos", "label": "custo médio / custo lote"}, {"from": "recursos", "to": "custos", "label": "potência + custo-hora"}, {"from": "custos", "to": "sim", "label": "cenário-base"}, {"from": "oppa", "to": "sim", "label": "seleção OP PA concluída"}, {"from": "oppi", "to": "sim", "label": "família de OPs"}, {"from": "formulacao", "to": "sim", "label": "formula do cenário"}, {"from": "apont", "to": "acv", "label": "massa/energia real"}, {"from": "custos", "to": "lcc", "label": "custos consolidados"}, {"from": "oppa", "to": "pass", "label": "produto final encerrado"}, {"from": "oppi", "to": "pass", "label": "genealogia"}, {"from": "apont", "to": "pass", "label": "lotes e consumos"}, {"from": "acv", "to": "pass", "label": "indicadores ambientais"}, {"from": "pass", "to": "qr", "label": "link do relatório"}, {"from": "pass", "to": "dash", "label": "dados técnicos"}, {"from": "qr", "to": "dash", "label": "acesso ao relatório"}, {"from": "custos", "to": "dashint", "label": "indicadores financeiros"}, {"from": "sim", "to": "dashint", "label": "cenários"}, {"from": "acv", "to": "dashint", "label": "impactos"}, {"from": "lcc", "to": "dashint", "label": "custos ciclo"}];
+const lanes=[{"name": "Cadastros Mestres", "y": 30, "h": 160}, {"name": "Engenharia", "y": 210, "h": 180}, {"name": "Planejamento / Produção", "y": 410, "h": 210}, {"name": "Custos / Análise", "y": 640, "h": 200}, {"name": "Rastreabilidade / Cliente", "y": 860, "h": 200}, {"name": "Infraestrutura", "y": 1080, "h": 180}];
+const canvas=document.getElementById('canvas');
+const svg=document.getElementById('svg');
+const byId=Object.fromEntries(nodes.map(n=>[n.id,n]));
+let selected=null;
+
+function addLanes(){
+  lanes.forEach(l=>{
+    const d=document.createElement('div');
+    d.className='lane'; d.style.top=l.y+'px'; d.style.height=l.h+'px';
+    d.innerHTML=`<div class="lane-label">${l.name}</div>`;
+    canvas.appendChild(d);
+  });
+}
+
+function addNodes(){
+  nodes.forEach(n=>{
+    const d=document.createElement('div');
+    d.className='node'; d.id='node-'+n.id;
+    d.style.left=n.x+'px'; d.style.top=n.y+'px';
+    d.innerHTML=`<div class="node-head">${n.title}</div><div class="node-body">${n.desc}</div>`;
+    d.onclick=()=>selectNode(n.id);
+    canvas.appendChild(d);
+  });
+}
+
+function center(n){
+  return {x:n.x+105,y:n.y+38};
+}
+function pathFor(a,b){
+  const A=center(a), B=center(b);
+  const dx=B.x-A.x, dy=B.y-A.y;
+  const x1=A.x + (dx>=0?105:-105);
+  const y1=A.y;
+  const x2=B.x + (dx>=0?-105:105);
+  const y2=B.y;
+  const mx=(x1+x2)/2;
+  if(Math.abs(dy)<60) return `M ${x1} ${y1} L ${x2} ${y2}`;
+  return `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
+}
+function drawEdges(){
+  edges.forEach((e,i)=>{
+    const a=byId[e.from], b=byId[e.to];
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',pathFor(a,b)); p.setAttribute('class','edge'); p.dataset.idx=i;
+    svg.appendChild(p);
+    const A=center(a),B=center(b);
+    const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x',(A.x+B.x)/2); t.setAttribute('y',(A.y+B.y)/2-5);
+    t.setAttribute('text-anchor','middle'); t.setAttribute('class','edge-label'); t.dataset.idx=i;
+    t.textContent=e.label; svg.appendChild(t);
+  });
+}
+function selectNode(id){
+  selected=id;
+  document.querySelectorAll('.node').forEach(n=>n.classList.remove('selected'));
+  document.getElementById('node-'+id).classList.add('selected');
+  const related=new Set();
+  edges.forEach((e,i)=>{
+    const p=document.querySelector(`.edge[data-idx="${i}"]`);
+    const t=document.querySelector(`.edge-label[data-idx="${i}"]`);
+    const active=e.from===id||e.to===id;
+    p.classList.toggle('active',active); p.classList.toggle('dim',!active);
+    t.classList.toggle('dim',!active);
+    if(active){related.add(e.from);related.add(e.to)}
+  });
+  document.querySelectorAll('.node').forEach(n=>n.classList.toggle('filtered',!related.has(n.id.replace('node-',''))));
+  showPanel(id);
+}
+function showPanel(id){
+  const n=byId[id], incoming=edges.filter(e=>e.to===id), outgoing=edges.filter(e=>e.from===id);
+  const p=document.getElementById('panel');
+  p.className='panel show';
+  p.innerHTML=`<button class="close" onclick="resetView()">×</button>
+  <h2>${n.title}</h2><div class="small">${n.lane}</div>
+  <div>${n.desc}</div>
+  <h3>Recebe de</h3><ul>${incoming.length?incoming.map(e=>`<li><b>${byId[e.from].title}</b> — ${e.label}</li>`).join(''):'<li>Origem primária/cadastro</li>'}</ul>
+  <h3>Envia para</h3><ul>${outgoing.length?outgoing.map(e=>`<li><b>${byId[e.to].title}</b> — ${e.label}</li>`).join(''):'<li>Sem destino direto</li>'}</ul>`;
+}
+function resetView(){
+  selected=null;
+  document.querySelectorAll('.node').forEach(n=>n.classList.remove('selected','filtered'));
+  document.querySelectorAll('.edge').forEach(e=>e.classList.remove('active','dim'));
+  document.querySelectorAll('.edge-label').forEach(e=>e.classList.remove('dim'));
+  document.getElementById('panel').className='panel';
+  document.getElementById('search').value='';
+}
+function focusPath(){
+  resetView();
+  const main=['materiais','entradas','lotes','estrutura','roteiro','formulacao','gerarop','oppa','oppi','apont','custos','sim','pass','qr','dash','banco'];
+  const set=new Set(main);
+  document.querySelectorAll('.node').forEach(n=>n.classList.toggle('filtered',!set.has(n.id.replace('node-',''))));
+  edges.forEach((e,i)=>{
+    const active=set.has(e.from)&&set.has(e.to);
+    document.querySelector(`.edge[data-idx="${i}"]`).classList.toggle('dim',!active);
+    document.querySelector(`.edge-label[data-idx="${i}"]`).classList.toggle('dim',!active);
+    if(active) document.querySelector(`.edge[data-idx="${i}"]`).classList.add('active');
+  });
+}
+document.getElementById('search').addEventListener('input',e=>{
+  const q=e.target.value.trim().toLowerCase();
+  document.querySelectorAll('.node').forEach(el=>{
+    const n=byId[el.id.replace('node-','')];
+    el.classList.toggle('filtered',q && !(n.title+' '+n.desc).toLowerCase().includes(q));
+  });
+});
+addLanes(); addNodes(); drawEdges();
+</script>
+</body></html>

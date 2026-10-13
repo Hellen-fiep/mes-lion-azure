@@ -1,0 +1,6 @@
+Scripts T-SQL do MES LION (SQL Server / Azure SQL)
+
+Os scripts oficiais ficam em src/MesLion.Server/Sql (001 a 005) e são embutidos no servidor,
+que os aplica automaticamente na inicialização (tabela dbo.schema_version).
+No pacote de entrega, uma cópia é colocada nesta pasta (UTF-8 com BOM) para execução manual
+pela TI no SSMS/Azure Data Studio/sqlcmd, na ordem numérica.

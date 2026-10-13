@@ -1,0 +1,230 @@
+# =====================================================================
+# MES LION — Integração contínua (GitHub Actions)
+#  - Linux: testes de unidade, API, banco SQL Server 2022 real, navegador (Playwright),
+#           A/B de telas contra o contrato do servidor original e migração do PostgreSQL 16.
+#  - Windows: executável autocontido win-x64 (não exige .NET instalado) + testes com
+#             modo Portátil e SQL Server LocalDB.
+#  - Publica os pacotes no release "build-mais-recente".
+# =====================================================================
+name: CI MES LION Azure
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  SA_PASSWORD: "MesLion#Teste2026"
+
+jobs:
+  linux:
+    name: Linux — SQL Server 2022 + PostgreSQL 16
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "MesLion#Teste2026"
+          MSSQL_PID: Developer
+        ports: [ "1433:1433" ]
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'MesLion#Teste2026' -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval 10s --health-timeout 5s --health-retries 30
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: [ "5432:5432" ]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependências de teste
+        run: |
+          pip install requests pymssql playwright
+          python -m playwright install --with-deps chromium
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+          pwsh --version && psql --version
+
+      - name: Testes de unidade
+        run: dotnet run -c Release --project tests/MesLion.Testes
+
+      - name: Publicar (Linux e pacote Azure App Service)
+        run: |
+          dotnet publish src/MesLion.Server -c Release -o out/app
+          dotnet publish src/MesLion.Server -c Release -o out/azure-app-service
+          (cd out/azure-app-service && zip -qr ../MES_LION_AZURE_app-service.zip .)
+
+      - name: Iniciar MES com SQL Server
+        run: |
+          mkdir -p out/Dados
+          cp tests/dados_teste/MES_LION_DATA_TESTE.json out/Dados/MES_LION_DATA.json
+          cd out/app
+          export ConnectionStrings__MesLion="Server=localhost,1433;Database=MesLionCI;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true"
+          export MesLion__Banco__Provedor=SqlServer
+          export MesLion__Relacional__AtrasoSegundos=2
+          nohup ./MesLion.Server --urls http://127.0.0.1:8765 > ../server_sql.log 2>&1 &
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8765/healthz && break; sleep 1; done
+          echo; curl -sf http://127.0.0.1:8765/healthz
+
+      - name: Testes de API (SQL Server)
+        run: python tests/testes_api.py http://127.0.0.1:8765 out/Dados/MES_LION_DATA.json
+
+      - name: Verificação do banco SQL Server (esquema, camada relacional, views, FKs)
+        run: python tests/verificar_sqlserver.py localhost 1433 sa "$SA_PASSWORD" MesLionCI http://127.0.0.1:8765
+
+      - name: Testes ponta a ponta no navegador (SQL Server)
+        run: python tests/e2e_fluxos.py http://127.0.0.1:8765
+
+      - name: A/B de telas — servidor original (contrato PowerShell) x servidor novo (SQL Server)
+        run: |
+          mkdir -p out/frontend_original
+          cp -r src/MesLion.Server/wwwroot/* out/frontend_original/
+          cp tests/referencia_frontend_original/index.html out/frontend_original/index.html
+          rm out/frontend_original/js/mes_plataforma_azure.js
+          nohup python tests/servidor_referencia_contrato_ps.py --root out/frontend_original --seed out/Dados/MES_LION_DATA.json --port 8766 > out/ref.log 2>&1 &
+          cd out/app
+          export ConnectionStrings__MesLion="Server=localhost,1433;Database=MesLionAB;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true"
+          export MesLion__Banco__Provedor=SqlServer
+          export MesLion__Arquivos__PastaLocal=../DadosAB/Arquivos
+          nohup ./MesLion.Server --urls http://127.0.0.1:8767 > ../server_ab.log 2>&1 &
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8767/healthz && curl -s http://127.0.0.1:8766/ > /dev/null && break; sleep 1; done
+          cd ../..
+          python tests/ab_comparar_telas.py http://127.0.0.1:8766 http://127.0.0.1:8767 out/ab_resultado.json
+
+      - name: Migração PostgreSQL → SQL Server (script de exportação + importação)
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: python tests/teste_migracao.py out/app tests/dados_teste/MES_LION_DATA_TESTE.json "Server=localhost,1433;Database=MesLionMig;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true"
+
+      - name: Logs do servidor
+        if: always()
+        run: |
+          tail -n 80 out/server_sql.log || true
+          tail -n 40 out/server_ab.log || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resultados-linux
+          path: |
+            out/*.log
+            out/ab_resultado.json
+            out/MES_LION_AZURE_app-service.zip
+
+  windows:
+    name: Windows — executável win-x64 + LocalDB
+    runs-on: windows-2022
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Publicar executável autocontido (não exige .NET instalado)
+        run: >
+          dotnet publish src/MesLion.Server -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false
+          -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:GenerateDocumentationFile=false
+          -o out/win-x64/app
+
+      - name: Teste rápido — modo Portátil
+        shell: pwsh
+        run: |
+          pip install requests | Out-Null
+          New-Item -ItemType Directory out/win-x64/Dados -Force | Out-Null
+          Copy-Item tests/dados_teste/MES_LION_DATA_TESTE.json out/win-x64/Dados/MES_LION_DATA.json
+          $env:MesLion__Banco__Provedor = 'Portatil'
+          $p = Start-Process -FilePath "$PWD/out/win-x64/app/MesLion.Server.exe" -ArgumentList '--urls','http://127.0.0.1:8765' -WorkingDirectory "$PWD/out/win-x64/app" -PassThru -RedirectStandardOutput out/win_portatil.log -RedirectStandardError out/win_portatil_err.log
+          for ($i = 0; $i -lt 120; $i++) { try { Invoke-RestMethod http://127.0.0.1:8765/healthz | Out-Null; break } catch { Start-Sleep 1 } }
+          python tests/testes_api.py http://127.0.0.1:8765 out/win-x64/Dados/MES_LION_DATA.json
+          $codigo = $LASTEXITCODE
+          Stop-Process -Id $p.Id -Force
+          Remove-Item out/win-x64/Dados/BancoPortatil, out/win-x64/Dados/Arquivos -Recurse -Force -ErrorAction SilentlyContinue
+          exit $codigo
+
+      - name: Teste com SQL Server LocalDB (detecção automática)
+        shell: pwsh
+        run: |
+          if (-not (Get-Command sqllocaldb -ErrorAction SilentlyContinue)) {
+            choco install sqllocaldb -y --no-progress | Out-Null
+            $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
+          }
+          sqllocaldb info
+          sqllocaldb start MSSQLLocalDB
+          sqllocaldb info MSSQLLocalDB
+          Remove-Item Env:MesLion__Banco__Provedor -ErrorAction SilentlyContinue
+          $env:MesLion__Banco__NomeBancoLocalDb = 'MesLionCI'
+          $env:MesLion__Arquivos__PastaLocal = '../Dados/ArquivosLocalDb'
+          $p = Start-Process -FilePath "$PWD/out/win-x64/app/MesLion.Server.exe" -ArgumentList '--urls','http://127.0.0.1:8765' -WorkingDirectory "$PWD/out/win-x64/app" -PassThru -RedirectStandardOutput out/win_localdb.log -RedirectStandardError out/win_localdb_err.log
+          for ($i = 0; $i -lt 180; $i++) { try { Invoke-RestMethod http://127.0.0.1:8765/healthz | Out-Null; break } catch { Start-Sleep 1 } }
+          $info = Invoke-RestMethod http://127.0.0.1:8765/healthz
+          Write-Host "Provedor: $($info.banco)"
+          if ($info.banco -ne 'SqlServer') { Get-Content out/win_localdb.log; throw 'LocalDB não foi detectado/usado.' }
+          python tests/testes_api.py http://127.0.0.1:8765 out/win-x64/Dados/MES_LION_DATA.json
+          $codigo = $LASTEXITCODE
+          Stop-Process -Id $p.Id -Force
+          Get-Content out/win_localdb.log -Tail 30
+          Remove-Item out/win-x64/Dados/ArquivosLocalDb -Recurse -Force -ErrorAction SilentlyContinue
+          exit $codigo
+
+      - name: Empacotar executável
+        shell: pwsh
+        run: |
+          Remove-Item out/win-x64/Dados -Recurse -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path out/win-x64/app/* -DestinationPath out/MES_LION_AZURE_win-x64_app.zip -Force
+          Get-ChildItem out/win-x64/app | Select-Object Name, Length | Format-Table -AutoSize
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resultados-windows
+          path: |
+            out/*.log
+            out/MES_LION_AZURE_win-x64_app.zip
+
+  publicar:
+    name: Publicar release "build-mais-recente"
+    needs: [ linux, windows ]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artefatos
+      - name: Atualizar release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -R artefatos | head -50
+          gh release delete build-mais-recente --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          gh release create build-mais-recente --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Build mais recente ($GITHUB_SHA)" --notes "Pacotes gerados e testados automaticamente pelo CI." --prerelease \
+            artefatos/resultados-windows/MES_LION_AZURE_win-x64_app.zip \
+            artefatos/resultados-linux/MES_LION_AZURE_app-service.zip \
+            artefatos/resultados-linux/ab_resultado.json
