@@ -2,8 +2,12 @@ MES LION 1.0 AZURE — MANIFESTO DO FRONTEND (SHA-256)
 Comparação entre o frontend do pacote original (MES_LION_1_0_PGSQL: index.html, style.css, js/, assets/)
 e o frontend publicado pelo servidor novo (app/wwwroot).
 
-Resumo: 41 idênticos, 1 alterado(s), 1 novo(s), 0 removido(s).
-- ALTERADO index.html: título da aba ("MES LION 1.0 AZURE") e inclusão do script js/mes_plataforma_azure.js.
+Resumo: 41 idênticos, 1 alterado(s), 2 novo(s), 0 removido(s).
+- ALTERADO index.html: título da aba ("MES LION 1.0 AZURE") e inclusão dos scripts js/mes_correcao_colecoes.js e
+  js/mes_plataforma_azure.js (carregados depois de todos os scripts originais).
+- NOVO js/mes_correcao_colecoes.js: correção do erro herdado de ACV/LCC — recria, vazias, as coleções que os módulos
+  V1.0.19–V1.1.3 criam ao carregar a página e que se perdiam quando o estado vinha do servidor. Não cria, altera nem
+  remove registros e não muda cálculos.
 - NOVO js/mes_plataforma_azure.js: adaptador de plataforma (textos de plataforma, login Microsoft opcional,
   compactação do envio do estado em acesso remoto). Não contém regras de negócio.
 Todos os demais arquivos (app.js, data.js, patches, style.css, assets) são byte a byte idênticos ao original.
@@ -12,11 +16,12 @@ Conferência no Windows (PowerShell):  Get-FileHash -Algorithm SHA256 <arquivo>
 
 IDENTICO   assets/helpdesk_fluxo_mes_lion.html                      original=cb42ab1037c67ad597eafea55197723c046a8fa9e4c36a85fde89e944ae007fe  novo=cb42ab1037c67ad597eafea55197723c046a8fa9e4c36a85fde89e944ae007fe
 IDENTICO   assets/logo-mes.jpg                                      original=fc19cfa0631819ee2786c0118cf212b64c923b53e29aff6cc319ebfee2368a43  novo=fc19cfa0631819ee2786c0118cf212b64c923b53e29aff6cc319ebfee2368a43
-ALTERADO   index.html                                               original=9de457b031c86dd8f7593ccc0c647d8e489d542167e81f2a68984a8a41df59e2  novo=8aed7aeb9717fe5123a5bc82c39fe1384daa6bfd84d04e9ccc2c6c80cdefdeae
+ALTERADO   index.html                                               original=9de457b031c86dd8f7593ccc0c647d8e489d542167e81f2a68984a8a41df59e2  novo=a0d55598f6202e34905974b447e43939b15ff5a9a58eef8486a9c61957eb1b40
 IDENTICO   js/app.js                                                original=1c4796c4a04d844055d58e31a91e6537ae1f94476f070093404c0d5e90d40ed5  novo=1c4796c4a04d844055d58e31a91e6537ae1f94476f070093404c0d5e90d40ed5
 IDENTICO   js/data.js                                               original=3ef93bd0fbabaa4cacf020a78345e39e653bca9b9cc00e76ccad80f4dc398f23  novo=3ef93bd0fbabaa4cacf020a78345e39e653bca9b9cc00e76ccad80f4dc398f23
 IDENTICO   js/mes_calendar_default_unavailability.js                original=6e28e5842ad78fd4a8847a8cb02881410071ed9cf75d0170ca09b648c26d5915  novo=6e28e5842ad78fd4a8847a8cb02881410071ed9cf75d0170ca09b648c26d5915
 IDENTICO   js/mes_capacidade_carga_v1.js                            original=0c6ba16782f446e7dcb873c90d6e7a884cf51d8f9efcd95f98359c0c75230434  novo=0c6ba16782f446e7dcb873c90d6e7a884cf51d8f9efcd95f98359c0c75230434
+NOVO       js/mes_correcao_colecoes.js                              original=-                                                                 novo=f9fb89fa8b469ef61ce4624d5fd7ff6244609bb4db6fc92c8b15df10b0f3f2a6
 IDENTICO   js/mes_op_projetos.js                                    original=3c7cee05e4f5367eac498140a1b56485c2e507991914b221c4d164db087b077c  novo=3c7cee05e4f5367eac498140a1b56485c2e507991914b221c4d164db087b077c
 IDENTICO   js/mes_pgsql_1_0_extensions.js                           original=e220f2a999f6c51dc7a500597e6bf22a2559993c56d103c11a85dc6a8b8fd477  novo=e220f2a999f6c51dc7a500597e6bf22a2559993c56d103c11a85dc6a8b8fd477
 NOVO       js/mes_plataforma_azure.js                               original=-                                                                 novo=ff95621db4c2001e184f9f7bbd8fd077a090616329ead3b0d68d83b6f810c06c

@@ -13,8 +13,8 @@ Repositório `Hellen-fiep/mes-lion-azure`, branch `main`, commit indicado em `ev
 | Testes de unidade (`tests/MesLion.Testes`) | Linux, .NET 10 | **42/42** |
 | API — contrato HTTP completo (`tests/testes_api.py`) | Linux + **SQL Server 2022** | **95/95** |
 | Banco SQL Server — esquema, camada relacional, views, FKs (`tests/verificar_sqlserver.py`) | SQL Server 2022 | **45/45** |
-| Fluxos no navegador — Chromium/Playwright (`tests/e2e_fluxos.py`) | SQL Server 2022, acesso local e remoto | **21/21** |
-| **A/B de telas** — servidor original × servidor novo (`tests/ab_comparar_telas.py`) | frontend original + contrato PowerShell × ASP.NET Core + SQL Server | **32/32 telas idênticas**, menu idêntico |
+| Fluxos no navegador — Chromium/Playwright (`tests/e2e_fluxos.py`) | SQL Server 2022, acesso local e remoto | **25/25** |
+| **A/B de telas** — servidor original × servidor novo (`tests/ab_comparar_telas.py`) | frontend original + contrato PowerShell × ASP.NET Core + SQL Server | **32/32**: 30 telas idênticas ao original; ACV e LCC idênticas ao original com as coleções inicializadas e sem erro |
 | Migração PostgreSQL → SQL Server (`tests/teste_migracao.py`) | PostgreSQL 16 (schema original) → SQL Server 2022 | **25/25** |
 | API com o **executável Windows**, modo Portátil | Windows Server 2022 | **95/95** |
 | API com o **executável Windows**, **LocalDB detectado automaticamente** | Windows Server 2022 + LocalDB | **95/95** |
@@ -39,16 +39,20 @@ contagens esperadas, campos acentuados, integridade OP → etapas, uma view `rel
 de linhas igual à coleção, todas as views de correlação (uma linha por registro da coleção principal), `rel.fn_num`
 (vírgula decimal, milhar, "R$", negativos) e o catálogo `rel.relacionamentos`.
 
-**Navegador (21)** — login, título, cadastro de material com anexo (persistência após recarregar, anexo baixado
-íntegro), upload de PDF em equipamento, criação de usuário, Criar backup, Exportar banco, histórico, logout, perfil
-USER sem administração, Restaurar dados iniciais com backup antes, nenhum erro JavaScript inesperado e, por acesso
-remoto (IP da máquina), envio do estado compactado (gzip).
+**Navegador (25)** — login, título, cadastro de material com anexo (persistência após recarregar, anexo baixado
+íntegro), upload de PDF em equipamento, **ACV** (dashboard, estudo, cenário, AICV, ICV salvo), **LCC** (estudo,
+inventário de custos, cenário e cálculo), início de apontamento de tempo, gravação desses dados no servidor, criação de
+usuário, Criar backup, Exportar banco, histórico, logout, perfil USER sem administração, Restaurar dados iniciais com
+backup antes, **nenhum erro JavaScript** (sem exceções conhecidas) e, por acesso remoto (IP da máquina), envio do estado
+compactado (gzip).
 
 **A/B de telas (32)** — o mesmo conjunto de dados é aberto no servidor de referência (contrato do
 `MES_LION_SERVER.ps1` com o frontend original) e no servidor novo; o teste percorre **todas** as opções do menu e
 compara título, subtítulo e o HTML renderizado de cada tela (normalizando apenas datas/horas e identificadores
-gerados na hora). Resultado: todas idênticas. Os módulos ACV e LCC registram 1 erro JavaScript no primeiro acesso
-**nos dois servidores** (comportamento herdado do frontend original).
+gerados na hora). Resultado: as 30 telas sem correção são idênticas ao original. **ACV e LCC**, que no original davam erro
+JavaScript, foram corrigidas (`js/mes_correcao_colecoes.js`); para elas a referência é o **mesmo frontend original**
+servindo um estado que já contém as coleções vazias que o módulo cria (`tests/seed_com_colecoes.py`) — a tela nova é
+idêntica a essa referência e não tem erro JavaScript.
 
 **Migração (25)** — cria no PostgreSQL 16 o banco com o **schema original**, grava dados como o servidor PowerShell
 grava (senhas `crypt()`/bcrypt com acentos, payload jsonb, uploads), executa o **mesmo script** de exportação que o

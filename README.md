@@ -5,7 +5,7 @@ as regras de cálculo, as telas e as correlações de dados do sistema original.
 
 | Camada | Antes (MES LION 1.0 PGSQL) | Agora (MES LION 1.0 AZURE) |
 |---|---|---|
-| Frontend | HTML/CSS/JavaScript (app.js + patches) | **O mesmo**, byte a byte (ver `MANIFESTO_FRONTEND.txt`) |
+| Frontend | HTML/CSS/JavaScript (app.js + patches) | **O mesmo** (arquivos originais byte a byte) + adaptador de plataforma e correção de ACV/LCC — ver `MANIFESTO_FRONTEND.txt` |
 | Servidor | PowerShell (`MES_LION_SERVER.ps1`) + `psql.exe` | **ASP.NET Core .NET 10 (C#)** — mesmo contrato HTTP |
 | Banco | PostgreSQL (estado em `app_state.payload` jsonb) | **SQL Server / Azure SQL** (estado por coleção + camada relacional `rel.*`) |
 | Arquivos | `server/uploads` | **Azure Blob Storage** (ou pasta local) |

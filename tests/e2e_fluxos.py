@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 Teste ponta a ponta (navegador real, Playwright) dos fluxos principais do MES LION no servidor novo:
-login, cadastro com anexo, persistência após recarregar, documentos de equipamento, usuários,
-backup/exportação, histórico, logout, sessão de outro usuário e envio compactado em acesso remoto.
+login, cadastro com anexo, persistência após recarregar, documentos de equipamento, ACV e LCC (estudos,
+cenários, AICV, ICV, LCC), apontamento de tempo, usuários, backup/exportação, histórico, logout, sessão de
+outro usuário e envio compactado em acesso remoto.
 
 Uso: python e2e_fluxos.py <url_base> [url_remota_para_teste_gzip]
 Requisitos: pip install playwright requests  (e um Chromium: python -m playwright install chromium)
@@ -15,7 +16,8 @@ BASE = sys.argv[1].rstrip('/')
 REMOTA = sys.argv[2].rstrip('/') if len(sys.argv) > 2 else None
 CHROME = os.environ.get('MES_CHROME') or ('/opt/pw-browsers/chromium-1194/chrome-linux/chrome' if os.path.exists('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') else None)
 falhas, total = [], 0
-ERROS_CONHECIDOS = ("reading 'length'", "reading '0'")  # ACV/LCC com base inicial (comportamento idêntico ao original)
+ERROS_CONHECIDOS = ()  # nenhum: o erro herdado de ACV/LCC foi corrigido (js/mes_correcao_colecoes.js)
+SEL_ULTIMO = "(s=>{s.selectedIndex=s.options.length-1;s.dispatchEvent(new Event('change'))})(document.getElementById('%s'))"
 
 
 def ok(cond, nome, det=''):
@@ -117,6 +119,46 @@ async def main():
             await page.click('text=Enviar documento'); await page.wait_for_timeout(1500)
             eqdocs = await page.inner_text('#eqdocs')
             ok('Ficha técnica qualificação.pdf' in eqdocs and 'Checklist E2E' in eqdocs, 'documento PDF enviado e listado no equipamento', eqdocs[:200])
+
+        # 4b) ACV e LCC — antes da correção, abrir ou salvar nesses módulos dava erro com a base do servidor
+        ev = page.evaluate
+        n_err = len(erros)
+        await abrir_modulo(page, 'nav_acv')
+        await ev("acvStudiesV110()"); await ev("acvStudyFormV110()")
+        await page.fill('#a_nome', 'Estudo ACV E2E'); await page.select_option('#a_op', index=1)
+        await ev("saveACVStudyV110()")
+        await ev("acvScenariosV110()"); await ev(SEL_ULTIMO % 'as_st'); await page.fill('#as_nome', 'Base E2E')
+        await ev("saveACVScenarioV110()")
+        await ev("acvAICVV110()"); await ev(SEL_ULTIMO % 'ai_st'); await page.wait_for_timeout(200)
+        await ev("runAICVV110()"); await page.wait_for_timeout(400)
+        await ev("acvICVV110()"); await page.select_option('#icv_op', index=1); await ev("showICVV113()")
+        await ev("saveICVSnapshotV113()"); await ev("acvDashboardV110()"); await page.wait_for_timeout(300)
+        acv = await ev("({e:data.acv_estudos.length, c:data.acv_cenarios.length, r:data.acv_resultados.length, i:data.acv_icv_salvos.length})")
+        ok(acv['e'] >= 1 and acv['c'] >= 1 and acv['r'] >= 1 and acv['i'] >= 1 and len(erros) == n_err,
+           'ACV: dashboard, estudo, cenário, AICV e ICV sem erro', (acv, erros[n_err:]))
+        await abrir_modulo(page, 'nav_lcc')
+        await ev("lccStudiesV110()"); await page.fill('#ls_nome', 'Estudo LCC E2E'); await page.select_option('#ls_op', index=1)
+        await ev("saveLCCStudyV110()")
+        await ev("lccInventoryV110()"); await page.select_option('#li_op', index=1); await ev("showLCCInvV110()")
+        await ev("lccScenariosV110()"); await ev(SEL_ULTIMO % 'lc_st'); await page.fill('#lc_nome', 'Base E2E')
+        await ev("saveLCCScenarioV110()")
+        await ev("lccScenariosV110()"); await ev(SEL_ULTIMO % 'lc_st'); await ev("runLCCV110()"); await page.wait_for_timeout(400)
+        await ev("lccDashboardV110()"); await page.wait_for_timeout(300)
+        lcc = await ev("({e:data.lcc_estudos.length, c:data.lcc_cenarios.length, r:data.lcc_resultados.length})")
+        ok(lcc['e'] >= 1 and lcc['c'] >= 1 and lcc['r'] >= 1 and len(erros) == n_err,
+           'LCC: dashboard, estudo, inventário, cenário e cálculo sem erro', (lcc, erros[n_err:]))
+        await abrir_modulo(page, 'nav_producao')
+        if await ev("!!document.getElementById('prod_op') && typeof v1014IniciarApontamento === 'function'"):
+            await page.select_option('#prod_op', index=1)
+            await ev("document.getElementById('prod_op').dispatchEvent(new Event('change'))"); await page.wait_for_timeout(300)
+            n_ap = await ev("(data.apontamento_tempos || []).length")
+            await ev("v1014IniciarApontamento()"); await page.wait_for_timeout(300)
+            ok(await ev("(data.apontamento_tempos || []).length") == n_ap + 1 and len(erros) == n_err,
+               'apontamento de tempo iniciado sem erro', erros[n_err:])
+        await page.wait_for_timeout(1500)  # gravação assíncrona
+        est = requests.get(BASE + '/api/bootstrap', cookies={c['name']: c['value'] for c in await ctx.cookies()}).json()['data']
+        ok(len(est.get('acv_estudos', [])) >= 1 and len(est.get('acv_resultados', [])) >= 1 and len(est.get('lcc_resultados', [])) >= 1,
+           'ACV e LCC gravados no banco do servidor', {k: len(est.get(k, [])) for k in ('acv_estudos', 'acv_resultados', 'lcc_resultados')})
 
         # 5) usuários
         await abrir_modulo(page, 'nav_usuarios')

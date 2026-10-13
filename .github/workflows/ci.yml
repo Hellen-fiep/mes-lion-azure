@@ -106,16 +106,19 @@ jobs:
           mkdir -p out/frontend_original
           cp -r src/MesLion.Server/wwwroot/* out/frontend_original/
           cp tests/referencia_frontend_original/index.html out/frontend_original/index.html
-          rm out/frontend_original/js/mes_plataforma_azure.js
+          rm out/frontend_original/js/mes_plataforma_azure.js out/frontend_original/js/mes_correcao_colecoes.js
           nohup python tests/servidor_referencia_contrato_ps.py --root out/frontend_original --seed out/Dados/MES_LION_DATA.json --port 8766 > out/ref.log 2>&1 &
+          # referência das telas corrigidas (ACV/LCC): frontend original + estado com as coleções do módulo inicializadas
+          python tests/seed_com_colecoes.py out/Dados/MES_LION_DATA.json out/seed_com_colecoes.json
+          nohup python tests/servidor_referencia_contrato_ps.py --root out/frontend_original --seed out/seed_com_colecoes.json --port 8768 > out/ref_colecoes.log 2>&1 &
           cd out/app
           export ConnectionStrings__MesLion="Server=localhost,1433;Database=MesLionAB;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true"
           export MesLion__Banco__Provedor=SqlServer
           export MesLion__Arquivos__PastaLocal=../DadosAB/Arquivos
           nohup ./MesLion.Server --urls http://127.0.0.1:8767 > ../server_ab.log 2>&1 &
-          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8767/healthz && curl -s http://127.0.0.1:8766/ > /dev/null && break; sleep 1; done
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8767/healthz && curl -s http://127.0.0.1:8766/ > /dev/null && curl -s http://127.0.0.1:8768/ > /dev/null && break; sleep 1; done
           cd ../..
-          python tests/ab_comparar_telas.py http://127.0.0.1:8766 http://127.0.0.1:8767 out/ab_resultado.json 2>&1 | tee out/ab_telas.log
+          python tests/ab_comparar_telas.py http://127.0.0.1:8766 http://127.0.0.1:8767 out/ab_resultado.json http://127.0.0.1:8768 2>&1 | tee out/ab_telas.log
 
       - name: Migração PostgreSQL → SQL Server (script de exportação + importação)
         env:
@@ -170,12 +173,18 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Publicar executável autocontido (não exige .NET instalado)
+      - name: Publicar executável autocontido e enxuto (não exige .NET instalado)
         run: >
           dotnet publish src/MesLion.Server -c Release -r win-x64 --self-contained true
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=false
           -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:GenerateDocumentationFile=false
+          -p:PublishTrimmed=true -p:TrimMode=partial
           -o out/win-x64/app
+
+      - name: Tamanho do executável
+        shell: pwsh
+        run: |
+          Get-ChildItem out/win-x64/app -File | Select-Object Name, @{n='MB';e={[math]::Round($_.Length/1MB,2)}} | Format-Table -AutoSize | Out-String | Tee-Object -FilePath out/tamanho_executavel.log
 
       - name: Frontend publicado idêntico ao original (byte a byte, MANIFESTO_FRONTEND.txt)
         shell: pwsh
@@ -207,6 +216,33 @@ jobs:
           $codigo = $LASTEXITCODE
           Stop-Process -Id $p.Id -Force
           Remove-Item out/win-x64/Dados/BancoPortatil, out/win-x64/Dados/Arquivos -Recurse -Force -ErrorAction SilentlyContinue
+          exit $codigo
+
+      - name: Importação de pacote de migração com o executável (sem PostgreSQL)
+        shell: pwsh
+        run: |
+          [Console]::OutputEncoding = [Text.Encoding]::UTF8
+          pip install requests bcrypt | Out-Null
+          python tests/teste_importacao_pacote.py out/win-x64/app tests/dados_teste/MES_LION_DATA_TESTE.json 2>&1 | Tee-Object -FilePath out/importacao_win.log
+          exit $LASTEXITCODE
+
+      - name: Navegador (E2E) com o executável Windows — modo Portátil
+        shell: pwsh
+        run: |
+          [Console]::OutputEncoding = [Text.Encoding]::UTF8
+          pip install requests playwright | Out-Null
+          python -m playwright install chromium | Out-Null
+          $d = Join-Path $env:RUNNER_TEMP 'mes_e2e'
+          New-Item -ItemType Directory $d -Force | Out-Null
+          $env:MesLion__Banco__Provedor = 'Portatil'
+          $env:MesLion__Banco__PastaPortatil = Join-Path $d 'BancoPortatil'
+          $env:MesLion__Arquivos__PastaLocal = Join-Path $d 'Arquivos'
+          $env:MesLion__Seed__ArquivoInicial = (Resolve-Path tests/dados_teste/MES_LION_DATA_TESTE.json).Path
+          $p = Start-Process -FilePath "$PWD/out/win-x64/app/MesLion.Server.exe" -ArgumentList '--urls','http://127.0.0.1:8770' -WorkingDirectory "$PWD/out/win-x64/app" -PassThru -RedirectStandardOutput out/win_e2e.log -RedirectStandardError out/win_e2e_err.log
+          for ($i = 0; $i -lt 120; $i++) { try { Invoke-RestMethod http://127.0.0.1:8770/healthz | Out-Null; break } catch { Start-Sleep 1 } }
+          python tests/e2e_fluxos.py http://127.0.0.1:8770 2>&1 | Tee-Object -FilePath out/e2e_win.log
+          $codigo = $LASTEXITCODE
+          Stop-Process -Id $p.Id -Force
           exit $codigo
 
       - name: Teste com SQL Server LocalDB (detecção automática)

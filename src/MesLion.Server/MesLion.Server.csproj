@@ -29,6 +29,17 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
   </ItemGroup>
 
+  <!-- Executável Windows enxuto: publicado com -p:PublishTrimmed=true (modo parcial), que remove apenas código
+       não usado do .NET/ASP.NET Core. O código do MES e o Microsoft.Data.SqlClient são mantidos inteiros. -->
+  <PropertyGroup Condition="'$(PublishTrimmed)' == 'true'">
+    <TrimMode>partial</TrimMode>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(PublishTrimmed)' == 'true' and '$(MesOffline)' != 'true'">
+    <TrimmerRootAssembly Include="Microsoft.Data.SqlClient" />
+  </ItemGroup>
+
   <ItemGroup>
     <EmbeddedResource Include="Sql\*.sql" />
     <None Include="Sql\*.sql" CopyToOutputDirectory="Never" />

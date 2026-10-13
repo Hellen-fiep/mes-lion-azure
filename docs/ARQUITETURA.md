@@ -8,14 +8,16 @@ estado do MES (um documento JSON no PostgreSQL) e servia arquivos.
 
 Por isso a migração para o ecossistema Microsoft foi feita como **troca de plataforma sem troca de regras**:
 
-* o **frontend é o mesmo**, byte a byte (41 de 43 arquivos idênticos; ver `MANIFESTO_FRONTEND.txt`);
+* o **frontend é o mesmo**: os 42 arquivos originais continuam byte a byte idênticos, exceto o `index.html` (ver `MANIFESTO_FRONTEND.txt`);
 * o **servidor** passou a ser **ASP.NET Core .NET 10 (C#)**, com **o mesmo contrato HTTP** do servidor PowerShell;
 * o **banco** passou a ser **SQL Server / Azure SQL Database**, com uma camada relacional para consultas e Power BI;
 * os **arquivos** (documentos, anexos, backups) vão para o **Azure Blob Storage** (ou pasta local);
 * a **hospedagem** pode ser o **Azure App Service** ou um PC/servidor Windows (executável autocontido).
 
-Arquivos do frontend alterados: apenas `index.html` (título da aba + inclusão do adaptador) e o novo
-`js/mes_plataforma_azure.js` (adaptador de plataforma, sem regra de negócio).
+Arquivos do frontend alterados: apenas `index.html` (título da aba + inclusão de dois scripts novos, carregados depois
+de todos os originais):
+* `js/mes_plataforma_azure.js` — adaptador de plataforma, sem regra de negócio;
+* `js/mes_correcao_colecoes.js` — correção do erro herdado de **ACV e LCC** (seção 7), sem alterar registros nem cálculos.
 
 ## 2. Antes e depois
 
@@ -132,12 +134,19 @@ recebe os dados iniciais de `Dados/MES_LION_DATA.json` — ou os dados migrados 
 * Sessões sobrevivem a reinícios; usuário desativado perde o acesso imediatamente.
 * O servidor publica **somente** o frontend (o PowerShell servia qualquer arquivo da pasta, inclusive `Dados/` e scripts).
 * Senhas: PBKDF2-SHA512 (100.000 iterações) no lugar do bcrypt custo 6 do pgcrypto.
+* **ACV e LCC voltaram a funcionar.** No MES LION 1.0 PGSQL, os módulos V1.0.19–V1.1.3 criavam suas coleções vazias
+  (`acv_estudos`, `acv_cenarios`, `acv_resultados`, `acv_icv_salvos`, `lcc_estudos`, `lcc_cenarios`, `lcc_resultados`,
+  `apontamento_tempos`, `op_pi_consumos`, `pi_lotes`) ao carregar a página, mas o estado vindo do servidor substituía o
+  objeto `data` logo depois (no login e ao recarregar) e essas coleções desapareciam. Resultado: erro ao abrir ACV e LCC,
+  ao salvar estudos/ICV e ao iniciar um apontamento de tempo. `js/mes_correcao_colecoes.js` recria apenas as coleções
+  ausentes, vazias, com a mesma regra dos módulos (`data.X = data.X || []`). Não executa as cargas de demonstração dos
+  patches (OPs de validação, ICV/AICV de benchmark, dados de teste do WIP), que também nunca chegavam ao banco do PGSQL,
+  para não alterar OPs nem resultados existentes. O teste A/B confirma: ACV e LCC ficam idênticas ao que o código original
+  desenha quando as coleções existem, e as outras 30 telas continuam idênticas ao original.
 
 ## 8. Comportamentos herdados (mantidos de propósito)
 
 * **Multiusuário**: como no original, a última gravação do estado prevalece (não há bloqueio por registro).
-* Com a base inicial, os módulos **ACV** e **LCC** mostram erro no primeiro acesso logo após o login; ao recarregar a página
-  (F5) funcionam. O teste A/B confirmou o mesmo comportamento no servidor original.
 * O menu **Banco ▾** do cabeçalho fica oculto enquanto a página está em "modo dashboard" (abrir, por exemplo,
   Entrada de Materiais ou Processos o exibe), igual ao original.
 * O QR da etiqueta do passaporte aponta para o GitHub Pages (regra da V40.4.5 do frontend); a publicação no próprio

@@ -86,7 +86,9 @@ Marque cada item (as 32 opções do menu foram comparadas automaticamente com o 
 
 **Projetos**
 - [ ] Projetos, Simulações, Custos Industriais
-- [ ] ACV — Ciclo de Vida e LCC — Life Cycle Costing (veja "Comportamentos herdados" abaixo)
+- [ ] ACV — Ciclo de Vida: abrir sem erro; criar um estudo para uma OP, um cenário e calcular o AICV; salvar o ICV da OP
+- [ ] LCC — Life Cycle Costing: criar um estudo, carregar o inventário de custos da OP, salvar um cenário e calcular
+  (no MES antigo essas telas davam erro — corrigido nesta versão)
 - [ ] Battery Passport: abrir um passaporte, gerar o dashboard/QR
 
 **Administração e menu Banco ▾**
@@ -153,8 +155,7 @@ Como no MES original, a última gravação prevalece se duas pessoas alterarem o
 
 ## 8. Comportamentos herdados do MES original (não são falhas da migração)
 
-* Com a base inicial, **ACV** e **LCC** podem mostrar erro no primeiro acesso logo após o login; ao recarregar (F5)
-  funcionam. O mesmo acontece no servidor original (confirmado no teste A/B).
+* **Multiusuário**: a última gravação prevalece se duas pessoas alterarem o mesmo cadastro ao mesmo tempo.
 * O menu **Banco ▾** fica oculto enquanto a página está em "modo dashboard"; abra qualquer outra tela para vê-lo.
 * O QR da etiqueta do passaporte aponta para o GitHub Pages (regra do frontend); a publicação no próprio servidor
   (`/passaporte/{id}.html`) também está disponível.
