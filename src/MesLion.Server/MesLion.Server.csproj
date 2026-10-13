@@ -15,6 +15,9 @@
     <SatelliteResourceLanguages>pt-BR</SatelliteResourceLanguages>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <!-- O frontend é publicado exatamente como no MES original (sem cópias .gz/.br pré-compactadas);
+         a compactação das respostas é feita em tempo real pelo servidor (Brotli/gzip). -->
+    <CompressionEnabled>false</CompressionEnabled>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     <PublishReadyToRun>false</PublishReadyToRun>

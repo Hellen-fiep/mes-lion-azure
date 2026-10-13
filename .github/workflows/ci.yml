@@ -175,6 +175,22 @@ jobs:
           -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:GenerateDocumentationFile=false
           -o out/win-x64/app
 
+      - name: Frontend publicado idêntico ao original (byte a byte, MANIFESTO_FRONTEND.txt)
+        shell: pwsh
+        run: |
+          function Hashes($raiz) {
+            $r = (Resolve-Path $raiz).Path
+            Get-ChildItem $raiz -Recurse -File | ForEach-Object {
+              [pscustomobject]@{ p = $_.FullName.Substring($r.Length).Replace('\', '/'); h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower() } }
+          }
+          $repo = @(Hashes 'src/MesLion.Server/wwwroot'); $pub = @(Hashes 'out/win-x64/app/wwwroot')
+          $dif = Compare-Object $repo $pub -Property p, h
+          if ($dif) { $dif | Format-Table -AutoSize | Out-String | Write-Host; throw 'O frontend publicado difere do repositório.' }
+          $man = Get-Content MANIFESTO_FRONTEND.txt -Raw
+          $fora = @($pub | Where-Object { $man -notmatch $_.h })
+          if ($fora) { $fora | Format-Table | Out-String | Write-Host; throw 'Arquivos do frontend fora do MANIFESTO_FRONTEND.txt.' }
+          "Frontend publicado: $($pub.Count) arquivos idênticos ao repositório e ao MANIFESTO_FRONTEND.txt" | Tee-Object -FilePath out/frontend_identico.log
+
       - name: Teste rápido — modo Portátil
         shell: pwsh
         run: |

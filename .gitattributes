@@ -1,0 +1,3 @@
+# Sem conversão de fim de linha: o frontend (wwwroot) e os scripts devem ser idênticos, byte a byte,
+# em qualquer sistema (o Git do Windows converteria LF em CRLF no checkout).
+* -text
