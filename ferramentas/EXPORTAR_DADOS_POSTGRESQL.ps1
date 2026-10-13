@@ -1,4 +1,4 @@
-<#
+﻿<#
 =====================================================================
  MES LION — EXPORTAÇÃO DOS DADOS DO POSTGRESQL (versão PowerShell/PostgreSQL)
  Gera um pacote de migração para a versão Microsoft/Azure (SQL Server):

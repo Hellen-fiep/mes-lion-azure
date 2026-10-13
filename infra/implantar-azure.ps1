@@ -1,10 +1,10 @@
-<#
+﻿<#
 =====================================================================
  MES LION — Implantação no Microsoft Azure (Azure CLI + Bicep)
  Pré-requisitos: Azure CLI (az) com permissão de Colaborador na assinatura/grupo e
- o pacote MES_LION_AZURE_app-service.zip (gerado pelo CI ou por PUBLICAR_AZURE.bat).
+ o pacote MES_LION_AZURE_app-service.zip (pasta azure\ do pacote ou release do CI).
  Uso:
-   .\implantar-azure.ps1 -GrupoRecursos rg-meslion -Regiao brazilsouth -Pacote ..\MES_LION_AZURE_app-service.zip
+   .\implantar-azure.ps1 -GrupoRecursos rg-meslion -Regiao brazilsouth -Pacote .\MES_LION_AZURE_app-service.zip
 =====================================================================
 #>
 param(

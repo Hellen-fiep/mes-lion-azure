@@ -134,6 +134,18 @@ try:
         us = json.load(open(os.path.join(destino, 'BancoPortatil', 'usuarios.json'), encoding='utf-8'))
         h = next(u['PasswordHash'] for u in us if u['Username'] == 'operador')
         ok(not h.startswith('$2'), 'hash bcrypt convertido para PBKDF2 (ASP.NET Identity V3) no primeiro login', h[:10])
+    else:
+        try:
+            import pymssql
+            cs = {k.strip().lower(): v.strip() for k, v in (p.split('=', 1) for p in SQLCS.split(';') if '=' in p)}
+            host, _, porta_sql = (cs.get('server') or cs.get('data source') or 'localhost').replace('tcp:', '').partition(',')
+            con = pymssql.connect(server=host, port=int(porta_sql or 1433), user=cs.get('user id'), password=cs.get('password'),
+                                  database=cs.get('database') or cs.get('initial catalog'))
+            cur = con.cursor(); cur.execute('SELECT password_hash FROM dbo.users WHERE username = %s', ('operador',))
+            h = cur.fetchone()[0]; con.close()
+            ok(not h.startswith('$2'), 'hash bcrypt convertido para PBKDF2 (ASP.NET Identity V3) no primeiro login (SQL Server)', h[:10])
+        except ImportError:
+            print('  (pymssql indisponível: conferência do hash no SQL Server não executada)')
     sa = requests.Session(); sa.post(base + '/api/auth/login', json={'username': 'admin', 'password': 'meslion2026'})
     b = sa.get(base + '/api/bootstrap').json()
     ok(b['data'] == estado, 'estado do MES idêntico ao do PostgreSQL', '')

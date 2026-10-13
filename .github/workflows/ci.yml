@@ -85,7 +85,7 @@ jobs:
           export ConnectionStrings__MesLion="Server=localhost,1433;Database=MesLionCI;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true"
           export MesLion__Banco__Provedor=SqlServer
           export MesLion__Relacional__AtrasoSegundos=2
-          nohup ./MesLion.Server --urls http://127.0.0.1:8765 > ../server_sql.log 2>&1 &
+          nohup ./MesLion.Server --urls http://0.0.0.0:8765 > ../server_sql.log 2>&1 &   # 0.0.0.0: também testa o acesso remoto (rede)
           for i in $(seq 1 180); do curl -sf http://127.0.0.1:8765/healthz && break; sleep 1; done
           echo; curl -sf http://127.0.0.1:8765/healthz | tee ../healthz_sql.json || { tail -n 200 ../server_sql.log; exit 1; }
 
@@ -96,7 +96,10 @@ jobs:
         run: python tests/verificar_sqlserver.py localhost 1433 sa "$SA_PASSWORD" MesLionCI http://127.0.0.1:8765 2>&1 | tee out/verificar_sqlserver.log
 
       - name: Testes ponta a ponta no navegador (SQL Server)
-        run: python tests/e2e_fluxos.py http://127.0.0.1:8765 2>&1 | tee out/e2e_sql.log
+        run: |
+          IP=$(hostname -I | awk '{print $1}')
+          echo "Acesso remoto (rede) via http://$IP:8765"
+          python tests/e2e_fluxos.py http://127.0.0.1:8765 "http://$IP:8765" 2>&1 | tee out/e2e_sql.log
 
       - name: A/B de telas — servidor original (contrato PowerShell) x servidor novo (SQL Server)
         run: |

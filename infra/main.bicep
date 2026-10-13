@@ -224,6 +224,7 @@ resource app 'Microsoft.Web/sites@2022-09-01' = {
     clientAffinityEnabled: true
     siteConfig: {
       linuxFxVersion: 'DOTNETCORE|10.0'
+      appCommandLine: 'dotnet MesLion.Server.dll'
       alwaysOn: true
       http20Enabled: true
       minTlsVersion: '1.2'

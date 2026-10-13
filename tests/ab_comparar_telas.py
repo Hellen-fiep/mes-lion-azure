@@ -19,7 +19,7 @@ NORMALIZAR = [
 ]
 VOLATEIS = [
     (r'\d{2}/\d{2}/\d{4},? \d{2}:\d{2}(:\d{2})?', '<DATAHORA>'),
-    (r'\d{1,2}:\d{2}:\d{2}', '<HORA>'),
+    (r'\d{1,2}:\d{2}:\d{2}(\.\d+)?', '<HORA>'),   # inclui frações de segundo (instantes de criação diferem entre os servidores)
     (r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '<GUID>'),
     (r'(OP|SIM|MRP|CAL|BLOQ|META|CAR|PCM|AT|CPI)-?\d{10,}', r'\1<TS>'),
 ]
@@ -83,5 +83,6 @@ async def main():
     print(rel['resumo'], '| menu igual:', rel['menu_igual'])
     for nid, it in rel['telas'].items():
         print(('  OK   ' if it['igual'] else '  DIFF ') + f"{nid:28s} {str(it['titulo'])[:40]:40s} ref={it['bytes_ref']} novo={it['bytes_novo']} errosJS ref={len(it['erros_js_ref'] or [])} novo={len(it['erros_js_novo'] or [])}")
+    return 0 if rel['menu_igual'] and iguais == len(nav_r) and nav_r else 1
 
-asyncio.run(main())
+sys.exit(asyncio.run(main()))
