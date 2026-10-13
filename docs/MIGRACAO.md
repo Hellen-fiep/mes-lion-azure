@@ -98,7 +98,17 @@ guarde-o em local protegido e apague-o após a migração.
   `manifesto.json` do pacote traz as contagens de origem.
 * O MES antigo continua intacto: em caso de dúvida, ele pode ser usado em paralelo até a validação final.
 
-## 4. Voltar atrás
+## 4. Problemas comuns
+
+| Mensagem | Solução |
+|---|---|
+| `psql não encontrado` | rode no computador onde o PostgreSQL do MES antigo está instalado (o `psql` vem com ele) |
+| `password authentication failed` | confira a senha do usuário `postgres` (a mesma pedida pelo `INICIAR_MES.bat` antigo) |
+| "a execução de scripts foi desabilitada" / política de execução | a TI bloqueou scripts PowerShell por política de grupo; peça a liberação do `ferramentas\EXPORTAR_DADOS_POSTGRESQL.ps1` ou rode a exportação em outro computador com acesso ao PostgreSQL (seção 2) |
+| `O banco de destino já possui dados gravados pelo MES` | rode de novo e responda **S** (ou use `--sobrescrever`); um backup é criado antes |
+| `AVISO: pasta de uploads não encontrada` | a pasta informada não é a do MES antigo; os dados migram, mas os PDFs dos equipamentos não — rode de novo com a pasta correta |
+
+## 5. Voltar atrás
 
 * Banco ▾ → **Importar banco** aceita o `.json` exportado por **Exportar banco** (formato `MES_LION_JSON_DATABASE`).
 * Cada importação cria um backup antes (pasta `Dados\Arquivos\backups` ou container `meslion/backups` no Azure).
