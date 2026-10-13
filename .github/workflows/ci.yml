@@ -157,6 +157,8 @@ jobs:
     name: Windows — executável win-x64 + LocalDB
     runs-on: windows-2022
     timeout-minutes: 60
+    env:
+      PYTHONUTF8: "1"   # saída dos testes em UTF-8 (acentos corretos nos logs)
     steps:
       - uses: actions/checkout@v4
 
@@ -194,6 +196,7 @@ jobs:
       - name: Teste rápido — modo Portátil
         shell: pwsh
         run: |
+          [Console]::OutputEncoding = [Text.Encoding]::UTF8
           pip install requests | Out-Null
           New-Item -ItemType Directory out/win-x64/Dados -Force | Out-Null
           Copy-Item tests/dados_teste/MES_LION_DATA_TESTE.json out/win-x64/Dados/MES_LION_DATA.json
@@ -209,6 +212,7 @@ jobs:
       - name: Teste com SQL Server LocalDB (detecção automática)
         shell: pwsh
         run: |
+          [Console]::OutputEncoding = [Text.Encoding]::UTF8
           if (-not (Get-Command sqllocaldb -ErrorAction SilentlyContinue)) {
             choco install sqllocaldb -y --no-progress | Out-Null
             $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User')
