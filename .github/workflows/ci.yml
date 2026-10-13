@@ -71,11 +71,11 @@ jobs:
           mkdir -p out
           dotnet run -c Release --project tests/MesLion.Testes 2>&1 | tee out/testes_unidade.log
 
-      - name: Publicar (Linux e pacote Azure App Service)
+      - name: Publicar (Linux x64 — este mesmo pacote, testado abaixo, é o do Azure App Service)
         run: |
-          dotnet publish src/MesLion.Server -c Release -o out/app
-          dotnet publish src/MesLion.Server -c Release -o out/azure-app-service
-          (cd out/azure-app-service && zip -qr ../MES_LION_AZURE_app-service.zip .)
+          dotnet publish src/MesLion.Server -c Release -r linux-x64 --self-contained false -o out/app
+          (cd out/app && zip -qr ../MES_LION_AZURE_app-service.zip .)
+          ls -la out/MES_LION_AZURE_app-service.zip
 
       - name: Iniciar MES com SQL Server
         run: |
@@ -266,6 +266,12 @@ jobs:
           if ($info.banco -ne 'SqlServer') { Get-Content out/win_localdb.log; throw 'LocalDB não foi detectado/usado.' }
           python tests/testes_api.py http://127.0.0.1:8765 out/win-x64/Dados/MES_LION_DATA.json 2>&1 | Tee-Object -FilePath out/testes_api_win_localdb.log
           $codigo = $LASTEXITCODE
+          # camada relacional (views rel.* e tabelas normalizadas) gerada pelo executável no LocalDB
+          $s = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+          Invoke-RestMethod http://127.0.0.1:8765/api/auth/login -Method Post -ContentType 'application/json' -Body '{"username":"admin","password":"meslion2026"}' -WebSession $s | Out-Null
+          for ($i = 0; $i -lt 40; $i++) { $rel = (Invoke-RestMethod http://127.0.0.1:8765/api/info -WebSession $s).camadaRelacional; if ($null -ne $rel.sucesso) { break }; Start-Sleep 2 }
+          "Camada relacional (LocalDB): sucesso=$($rel.sucesso) | $($rel.mensagem)" | Tee-Object -FilePath out/relacional_localdb.log
+          if ($rel.sucesso -ne $true -and $codigo -eq 0) { $codigo = 1 }
           Stop-Process -Id $p.Id -Force
           Get-Content out/win_localdb.log -Tail 30
           Remove-Item out/win-x64/Dados/ArquivosLocalDb -Recurse -Force -ErrorAction SilentlyContinue

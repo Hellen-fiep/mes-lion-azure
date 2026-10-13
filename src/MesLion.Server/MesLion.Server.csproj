@@ -29,15 +29,24 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.1" />
   </ItemGroup>
 
-  <!-- Executável Windows enxuto: publicado com -p:PublishTrimmed=true (modo parcial), que remove apenas código
-       não usado do .NET/ASP.NET Core. O código do MES e o Microsoft.Data.SqlClient são mantidos inteiros. -->
+  <!-- Executável Windows enxuto (~21 MB em vez de ~52 MB): publicado com -p:PublishTrimmed=true (modo parcial), que
+       remove apenas código não usado do .NET/ASP.NET Core. O código do MES, o Microsoft.Data.SqlClient e as bibliotecas
+       de login Microsoft são mantidos inteiros. -->
   <PropertyGroup Condition="'$(PublishTrimmed)' == 'true'">
     <TrimMode>partial</TrimMode>
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <!-- Mantém o mesmo caminho de execução da versão sem trimming (Azure/Linux, testada no CI): sem os geradores
+         de código de rotas e de configuração que o SDK liga junto com o trimming (o de rotas ignora o padrão do
+         MapFallback e devolveria 404 vazio para arquivos inexistentes). -->
+    <EnableRequestDelegateGenerator>false</EnableRequestDelegateGenerator>
+    <EnableConfigurationBindingGenerator>false</EnableConfigurationBindingGenerator>
   </PropertyGroup>
   <ItemGroup Condition="'$(PublishTrimmed)' == 'true' and '$(MesOffline)' != 'true'">
     <TrimmerRootAssembly Include="Microsoft.Data.SqlClient" />
+    <!-- Login Microsoft Entra ID no Azure SQL (CONFIGURAR_BANCO.bat, opção 4): bibliotecas mantidas inteiras. -->
+    <TrimmerRootAssembly Include="Azure.Identity" />
+    <TrimmerRootAssembly Include="Microsoft.Identity.Client" />
   </ItemGroup>
 
   <ItemGroup>
