@@ -119,6 +119,7 @@ async function principal(): Promise<number> {
   const cfg = carregarConfiguracao({ args: cli.argsConfiguracao });
   if (cli.abrirNavegador) cfg.opcoes.servidor.abrirNavegador = true;
   for (const a of cfg.arquivosLidos) log.log(`Configuração: ${a}`);
+  if (sentryAtivo) log.log('Monitoramento: Sentry ativo (erros e desempenho; sem corpos, cookies ou tokens).');
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule.registrar(cfg, { sentry: sentryAtivo }), {
     bodyParser: false,

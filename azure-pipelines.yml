@@ -74,6 +74,11 @@ stages:
             inputs:
               version: $(NODE_VERSION)
 
+          - task: UsePythonVersion@0
+            displayName: Python 3.12 (suíte de contrato HTTP)
+            inputs:
+              versionSpec: '3.12'
+
           - task: Cache@2
             displayName: Cache do npm
             inputs:
@@ -120,8 +125,8 @@ stages:
 
           - script: |
               set -e
-              pip install --quiet requests pymssql
-              python3 - <<'EOF'
+              python -m pip install --quiet requests pymssql
+              python - <<'EOF'
               import time, pymssql
               for i in range(90):
                   try:
@@ -143,7 +148,7 @@ stages:
               for i in $(seq 1 120); do curl -sf http://127.0.0.1:8765/healthz && break; sleep 1; done
               curl -sf http://127.0.0.1:8765/healthz || { tail -n 100 "$(Agent.TempDirectory)/servidor.log"; exit 1; }
               cd "$(Build.SourcesDirectory)"
-              python3 tests/testes_api.py http://127.0.0.1:8765 "$(Agent.TempDirectory)/Dados/MES_LION_DATA.json"
+              python tests/testes_api.py http://127.0.0.1:8765 "$(Agent.TempDirectory)/Dados/MES_LION_DATA.json"
             displayName: Contrato HTTP com SQL Server 2022 (tests/testes_api.py)
 
           - script: tail -n 80 "$(Agent.TempDirectory)/servidor.log" || true
