@@ -1,0 +1,221 @@
+// =====================================================================
+// MES LION — modelo de dados da API (Prisma ORM + SQL Server / Azure SQL)
+//
+// O esquema do banco é versionado pelos scripts T-SQL (src/MesLion.Server/Sql/001…005 e
+// apps/api/sql/006), aplicados automaticamente na inicialização e registrados em dbo.schema_version
+// — os mesmos usados pelo servidor .NET; os dois servidores podem usar o mesmo banco.
+// Este schema descreve as tabelas que a API lê e grava (database-first): conferir com
+// `prisma db pull --print` após alterar os scripts. As tabelas normalizadas (products, materials,
+// production_orders…) e a camada rel.* são mantidas pela procedure rel.usp_sincronizar_modelo_relacional.
+// =====================================================================
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "sqlserver"
+}
+
+/// Usuários (PostgreSQL original: users). Senha em PBKDF2 (ASP.NET Identity V3) ou bcrypt herdado.
+model Usuario {
+  id           String   @id(map: "PK_users") @default(dbgenerated("newid()"), map: "DF_users_id") @db.UniqueIdentifier
+  /// Sensível a maiúsculas/minúsculas (collation Latin1_General_100_CS_AS), como no PostgreSQL.
+  username     String   @unique(map: "UQ_users_username") @db.NVarChar(80)
+  fullName     String   @map("full_name") @db.NVarChar(180)
+  passwordHash String   @map("password_hash") @db.NVarChar(400)
+  role         String   @default("USER", map: "DF_users_role") @db.NVarChar(30)
+  active       Boolean  @default(true, map: "DF_users_active")
+  authProvider String   @default("LOCAL", map: "DF_users_auth_provider") @map("auth_provider") @db.NVarChar(30)
+  externalId   String?  @map("external_id") @db.NVarChar(200)
+  createdAt    DateTime @default(dbgenerated("sysdatetimeoffset()"), map: "DF_users_created_at") @map("created_at") @db.DateTimeOffset
+  updatedAt    DateTime @default(dbgenerated("sysdatetimeoffset()"), map: "DF_users_updated_at") @map("updated_at") @db.DateTimeOffset
+
+  estados       EstadoApp[]
+  auditorias    RegistroAuditoria[]
+  anexos        Anexo[]
+  passaportes   PassaportePublicado[]
+  backups       BackupEstado[]
+  documentos    DocumentoEquipamento[]
+  equipamentos  Equipamento[]
+  sessoes       SessaoAutenticacao[]
+
+  @@index([externalId], map: "IX_users_external_id")
+  @@map("users")
+}
+
+/// Cabeçalho do estado do MES (linha única id = 1): versão e autor da última gravação.
+model EstadoApp {
+  id        Int      @id(map: "PK_app_state") @default(1, map: "DF_app_state_id") @db.SmallInt
+  version   BigInt   @default(0, map: "DF_app_state_version")
+  updatedAt DateTime @default(dbgenerated("sysdatetimeoffset()"), map: "DF_app_state_updated_at") @map("updated_at") @db.DateTimeOffset
+  updatedBy String?  @map("updated_by") @db.UniqueIdentifier
+  usuario   Usuario? @relation(fields: [updatedBy], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_app_state_updated_by")
+
+  @@map("app_state")
+}
+
+/// Uma linha por coleção de nível superior do estado (op, materiais, meta…), com o JSON exatamente como
+/// enviado pelo navegador e o SHA-256 do conteúdo (grava-se só o que mudou).
+model ColecaoEstado {
+  name        String   @id(map: "PK_app_state_collection") @db.NVarChar(200)
+  ordinal     Int
+  content     String   @db.NVarChar(Max)
+  contentHash Bytes    @map("content_hash") @db.Binary(32)
+  itemCount   Int?     @map("item_count")
+  sizeBytes   BigInt   @map("size_bytes")
+  updatedAt   DateTime @default(dbgenerated("sysdatetimeoffset()"), map: "DF_app_state_collection_updated_at") @map("updated_at") @db.DateTimeOffset
+  updatedBy   String?  @map("updated_by") @db.UniqueIdentifier
+
+  @@map("app_state_collection")
+}
+
+/// Chaves do localStorage do frontend (PostgreSQL original: app_storage).
+model ArmazenamentoApp {
+  key       String   @id(map: "PK_app_storage") @db.NVarChar(400)
+  value     String?  @db.NVarChar(Max)
+  updatedAt DateTime @default(dbgenerated("sysdatetimeoffset()"), map: "DF_app_storage_updated_at") @map("updated_at") @db.DateTimeOffset
+
+  @@map("app_storage")
+}
+
+/// Histórico de modificações (PostgreSQL original: audit_log).
+model RegistroAuditoria {
+  id        BigInt   @id(map: "PK_audit_log") @default(autoincrement())
+  userId    String?  @map("user_id") @db.UniqueIdentifier
+  username  String?  @db.NVarChar(80)
+  module    String?  @db.NVarChar(80)
+  action    String?  @db.NVarChar(40)
+  recordKey String?  @map("record_key") @db.NVarChar(1000)
+  changedAt DateTime @default(dbgenerated("sysdatetimeoffset()"), map: "DF_audit_log_changed_at") @map("changed_at") @db.DateTimeOffset
+  details   String   @default("{}", map: "DF_audit_log_details") @db.NVarChar(Max)
+  usuario   Usuario? @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_audit_log_user")
+
+  @@index([changedAt(sort: Desc)], map: "IX_audit_changed_at")
+  @@map("audit_log")
+}
+
+/// Equipamentos (sincronizados de cad_recursos/recursos); a API só garante a linha para a FK dos documentos.
+model Equipamento {
+  code       String                 @id(map: "PK_equipment") @db.NVarChar(100)
+  name       String?                @db.NVarChar(Max)
+  process    String?                @db.NVarChar(Max)
+  active     Boolean                @default(true, map: "DF_equipment_active")
+  payload    String                 @default("{}", map: "DF_equipment_payload") @db.NVarChar(Max)
+  updatedAt  DateTime               @default(dbgenerated("sysdatetimeoffset()"), map: "DF_equipment_updated_at") @map("updated_at") @db.DateTimeOffset
+  updatedBy  String?                @map("updated_by") @db.UniqueIdentifier
+  usuario    Usuario?               @relation(fields: [updatedBy], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_equipment_updated_by")
+  documentos DocumentoEquipamento[]
+
+  @@map("equipment")
+}
+
+/// Documentos controlados dos equipamentos (PDF/XLS/XLSX).
+model DocumentoEquipamento {
+  id            String      @id(map: "PK_equipment_documents") @default(dbgenerated("newid()"), map: "DF_equipment_documents_id") @db.UniqueIdentifier
+  equipmentCode String      @map("equipment_code") @db.NVarChar(100)
+  originalName  String      @map("original_name") @db.NVarChar(400)
+  storedName    String      @map("stored_name") @db.NVarChar(400)
+  mimeType      String?     @map("mime_type") @db.NVarChar(200)
+  fileSize      BigInt?     @map("file_size")
+  documentType  String?     @map("document_type") @db.NVarChar(80)
+  revision      String?     @db.NVarChar(40)
+  active        Boolean     @default(true, map: "DF_equipment_documents_active")
+  uploadedAt    DateTime    @default(dbgenerated("sysdatetimeoffset()"), map: "DF_equipment_documents_uploaded_at") @map("uploaded_at") @db.DateTimeOffset
+  uploadedBy    String?     @map("uploaded_by") @db.UniqueIdentifier
+  equipamento   Equipamento @relation(fields: [equipmentCode], references: [code], onDelete: Cascade, onUpdate: NoAction, map: "FK_equipment_documents_equipment")
+  usuario       Usuario?    @relation(fields: [uploadedBy], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_equipment_documents_uploaded_by")
+
+  @@index([equipmentCode], map: "idx_docs_equipment")
+  @@map("equipment_documents")
+}
+
+/// Anexos de cadastros (rota /api/attachments).
+model Anexo {
+  id           String   @id(map: "PK_attachments") @db.UniqueIdentifier
+  scope        String   @db.NVarChar(100)
+  recordId     String   @map("record_id") @db.NVarChar(200)
+  originalName String   @map("original_name") @db.NVarChar(400)
+  storedKey    String   @map("stored_key") @db.NVarChar(800)
+  mimeType     String?  @map("mime_type") @db.NVarChar(200)
+  fileSize     BigInt   @map("file_size")
+  uploadedAt   DateTime @default(dbgenerated("sysdatetimeoffset()"), map: "DF_attachments_uploaded_at") @map("uploaded_at") @db.DateTimeOffset
+  uploadedBy   String?  @map("uploaded_by") @db.UniqueIdentifier
+  usuario      Usuario? @relation(fields: [uploadedBy], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_attachments_uploaded_by")
+
+  @@index([scope, recordId], map: "IX_attachments_scope_record")
+  @@map("attachments")
+}
+
+/// Dashboards HTML de passaporte publicados para o QR (rota /api/passport-publish).
+model PassaportePublicado {
+  id          String   @id(map: "PK_published_passports") @db.NVarChar(200)
+  storedKey   String   @map("stored_key") @db.NVarChar(800)
+  sizeBytes   BigInt   @map("size_bytes")
+  publishedAt DateTime @default(dbgenerated("sysdatetimeoffset()"), map: "DF_published_passports_published_at") @map("published_at") @db.DateTimeOffset
+  publishedBy String?  @map("published_by") @db.UniqueIdentifier
+  usuario     Usuario? @relation(fields: [publishedBy], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_published_passports_published_by")
+
+  @@map("published_passports")
+}
+
+/// Backups do estado (rota /api/backup; também criados antes de cada importação).
+model BackupEstado {
+  id            BigInt   @id(map: "PK_state_backups") @default(autoincrement())
+  storedKey     String   @map("stored_key") @db.NVarChar(800)
+  reason        String   @db.NVarChar(200)
+  sizeBytes     BigInt   @map("size_bytes")
+  stateVersion  BigInt   @map("state_version")
+  createdAt     DateTime @default(dbgenerated("sysdatetimeoffset()"), map: "DF_state_backups_created_at") @map("created_at") @db.DateTimeOffset
+  createdBy     String?  @map("created_by") @db.UniqueIdentifier
+  createdByName String?  @map("created_by_name") @db.NVarChar(80)
+  usuario       Usuario? @relation(fields: [createdBy], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_state_backups_created_by")
+
+  @@map("state_backups")
+}
+
+/// Sessões de login da API (JWT de acesso + refresh token rotativo). Criada pelo script 006.
+model SessaoAutenticacao {
+  id                  String    @id(map: "PK_auth_sessions") @db.UniqueIdentifier
+  userId              String    @map("user_id") @db.UniqueIdentifier
+  /// SHA-256 do refresh token atual (o token em si nunca é gravado).
+  refreshHash         Bytes     @unique(map: "UX_auth_sessions_refresh_hash") @map("refresh_hash") @db.Binary(32)
+  /// SHA-256 do refresh token anterior (aceito por alguns segundos após a rotação; depois disso indica reuso).
+  previousRefreshHash Bytes?    @map("previous_refresh_hash") @db.Binary(32)
+  provider            String    @default("LOCAL", map: "DF_auth_sessions_provider") @db.NVarChar(30)
+  channel             String    @default("COOKIE", map: "DF_auth_sessions_channel") @db.NVarChar(20)
+  createdAt           DateTime  @default(dbgenerated("sysdatetimeoffset()"), map: "DF_auth_sessions_created_at") @map("created_at") @db.DateTimeOffset
+  rotatedAt           DateTime  @default(dbgenerated("sysdatetimeoffset()"), map: "DF_auth_sessions_rotated_at") @map("rotated_at") @db.DateTimeOffset
+  lastSeenAt          DateTime  @default(dbgenerated("sysdatetimeoffset()"), map: "DF_auth_sessions_last_seen_at") @map("last_seen_at") @db.DateTimeOffset
+  expiresAt           DateTime  @map("expires_at") @db.DateTimeOffset
+  revokedAt           DateTime? @map("revoked_at") @db.DateTimeOffset
+  revokedReason       String?   @map("revoked_reason") @db.NVarChar(100)
+  userAgent           String?   @map("user_agent") @db.NVarChar(400)
+  ipAddress           String?   @map("ip_address") @db.NVarChar(64)
+  usuario             Usuario   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_auth_sessions_user")
+
+  @@index([userId], map: "IX_auth_sessions_user")
+  @@index([previousRefreshHash], map: "IX_auth_sessions_previous_refresh_hash")
+  @@index([expiresAt], map: "IX_auth_sessions_expires_at")
+  @@map("auth_sessions")
+}
+
+/// Segredos gerados pela aplicação (ex.: chave de assinatura dos JWT, quando não vem da configuração).
+model SegredoApp {
+  name      String   @id(map: "PK_app_secrets") @db.NVarChar(100)
+  value     String   @db.NVarChar(4000)
+  createdAt DateTime @default(dbgenerated("sysdatetimeoffset()"), map: "DF_app_secrets_created_at") @map("created_at") @db.DateTimeOffset
+
+  @@map("app_secrets")
+}
+
+/// Scripts T-SQL aplicados (001…006), com o SHA-256 do conteúdo.
+model VersaoEsquema {
+  script    String   @id(map: "PK_schema_version") @db.NVarChar(200)
+  checksum  String   @db.Char(64)
+  appliedAt DateTime @default(dbgenerated("sysdatetimeoffset()"), map: "DF_schema_version_applied_at") @map("applied_at") @db.DateTimeOffset
+
+  @@map("schema_version")
+}

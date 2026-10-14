@@ -1,0 +1,24 @@
+{
+  "name": "mes-lion-azure",
+  "private": true,
+  "description": "MES LION — servidor .NET (src/MesLion.Server) e API NestJS + Prisma (apps/api), com o mesmo frontend e o mesmo contrato HTTP",
+  "workspaces": [
+    "apps/api"
+  ],
+  "scripts": {
+    "prepare": "husky",
+    "build": "npm run build --workspace apps/api",
+    "lint": "npm run lint --workspace apps/api",
+    "typecheck": "npm run typecheck --workspace apps/api",
+    "format:check": "npm run format:check --workspace apps/api",
+    "test": "npm test --workspace apps/api",
+    "test:e2e": "npm run test:e2e --workspace apps/api"
+  },
+  "devDependencies": {
+    "husky": "9.1.7",
+    "lint-staged": "16.4.0"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

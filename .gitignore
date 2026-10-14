@@ -9,3 +9,10 @@ Dados/BancoPortatil/
 Dados/Arquivos/
 __pycache__/
 *.pyc
+# API NestJS (apps/api): dependências, compilação, pacote e cliente Prisma gerado (prisma generate)
+node_modules/
+apps/api/dist/
+apps/api/pacote/
+apps/api/coverage/
+apps/api/src/generated/
+*.tsbuildinfo

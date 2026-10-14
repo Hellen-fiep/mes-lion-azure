@@ -1,0 +1,5 @@
+dist
+pacote
+coverage
+node_modules
+src/generated

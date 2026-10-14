@@ -48,7 +48,12 @@ esperadas = ['dbo.schema_version', 'dbo.users', 'dbo.app_state', 'dbo.app_state_
              'dbo.state_backups', 'dbo.data_protection_keys', 'rel.relacionamentos', 'rel.views_geradas', 'rel.sincronizacao_status', 'rel.qualidade_dados']
 faltando = [t for t in esperadas if t not in tabelas]
 ok(not faltando, f'{len(esperadas)} tabelas do esquema (inclui todas as do PostgreSQL original)', faltando)
-ok(v('SELECT COUNT(*) FROM dbo.schema_version') == 5, 'scripts 001–005 aplicados (dbo.schema_version)', q('SELECT script FROM dbo.schema_version'))
+scripts = {r[0] for r in q('SELECT script FROM dbo.schema_version')}
+base = {'001_esquema_principal.sql', '002_modelo_relacional_original.sql', '003_arquivos_backups_chaves.sql',
+        '004_camada_relacional.sql', '005_sincronizacao_relacional.sql'}
+# servidor .NET: 001–005; API NestJS: 001–005 + 006_autenticacao_jwt.sql (sessões JWT)
+ok(base <= scripts and scripts - base <= {'006_autenticacao_jwt.sql'}, 'scripts 001–005 (+006 da API NestJS) aplicados (dbo.schema_version)', sorted(scripts))
+api_nest = '006_autenticacao_jwt.sql' in scripts
 ok(v("SELECT COUNT(*) FROM sys.foreign_keys") >= 30, 'chaves estrangeiras criadas', v("SELECT COUNT(*) FROM sys.foreign_keys"))
 ok(v("SELECT COUNT(*) FROM sys.objects WHERE name = 'usp_sincronizar_modelo_relacional' AND type = 'P'") == 1, 'procedure rel.usp_sincronizar_modelo_relacional', '')
 
@@ -60,7 +65,13 @@ ordem = [r[0] for r in q('SELECT name FROM dbo.app_state_collection ORDER BY ord
 ok(ordem == list(estado.keys()), 'ordem das coleções preservada no banco', ordem[:5])
 ok(v("SELECT COUNT(*) FROM dbo.users WHERE username = 'admin' AND password_hash LIKE 'AQAAAA%'") == 1, 'senha do admin em PBKDF2 (formato ASP.NET Identity V3)', '')
 ok(v("SELECT COUNT(*) FROM dbo.audit_log WHERE action = 'SAVE_STATE' AND ISJSON(details) = 1") > 0, 'auditoria SAVE_STATE com detalhes JSON', '')
-ok(v("SELECT COUNT(*) FROM dbo.data_protection_keys") >= 1, 'chave de sessão (Data Protection) persistida no SQL Server', '')
+if api_nest:
+    ok(v("SELECT COUNT(*) FROM dbo.app_secrets WHERE name = 'jwt'") == 1, 'chave de assinatura dos JWT persistida no SQL Server (dbo.app_secrets)', '')
+    ok(v("SELECT COUNT(*) FROM dbo.auth_sessions WHERE revoked_at IS NULL AND expires_at > SYSDATETIMEOFFSET()") >= 1
+       and v("SELECT COUNT(*) FROM dbo.auth_sessions WHERE DATALENGTH(refresh_hash) = 32") == v("SELECT COUNT(*) FROM dbo.auth_sessions"),
+       'sessões JWT no SQL Server (dbo.auth_sessions: só o SHA-256 do refresh token)', '')
+else:
+    ok(v("SELECT COUNT(*) FROM dbo.data_protection_keys") >= 1, 'chave de sessão (Data Protection) persistida no SQL Server', '')
 
 # ---------------------------------------------------------------- camada relacional (aguarda o serviço em segundo plano)
 versao = v('SELECT version FROM dbo.app_state WHERE id = 1')

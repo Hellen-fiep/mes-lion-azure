@@ -318,9 +318,189 @@ jobs:
             out/*.log
             out/MES_LION_AZURE_win-x64_app.zip
 
+  # -------------------------------------------------------------------------------------------------
+  # Fase 1 (padrão FIEP): API em NestJS + Prisma (apps/api) com o MESMO contrato HTTP. Roda lint, Jest e
+  # as MESMAS suítes de caixa-preta usadas no servidor .NET, com SQL Server 2022 e PostgreSQL 16 reais.
+  # -------------------------------------------------------------------------------------------------
+  api-nestjs:
+    name: API NestJS + Prisma — SQL Server 2022 (mesmas suítes do servidor .NET)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    defaults:
+      run:
+        shell: bash
+    env:
+      HUSKY: "0"
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "MesLion#Teste2026"
+          MSSQL_PID: Developer
+        ports: [ "1433:1433" ]
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'MesLion#Teste2026' -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval 10s --health-timeout 5s --health-retries 30
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: [ "5432:5432" ]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependências de teste (Python, Chromium, psql)
+        run: |
+          pip install requests pymssql playwright bcrypt
+          python -m playwright install --with-deps chromium
+          sudo apt-get install -y -qq postgresql-client >/dev/null
+          node --version && npm --version && pwsh --version
+
+      - name: Instalar dependências (npm ci) e gerar o cliente Prisma
+        run: |
+          mkdir -p out/api
+          npm ci 2>&1 | tail -5
+          npm run prisma:generate --workspace apps/api 2>&1 | tee out/api/prisma_generate.log
+
+      - name: Lint (ESLint) e formatação (Prettier)
+        run: |
+          npm run lint 2>&1 | tee out/api/lint.log
+          npm run typecheck 2>&1 | tee -a out/api/lint.log
+          npm run format:check 2>&1 | tee -a out/api/lint.log
+
+      - name: Testes Jest — unidade (com cobertura)
+        run: npm run test:cov --workspace apps/api -- --ci 2>&1 | tee out/api/jest_unidade.log
+
+      - name: Testes Jest — e2e (supertest, modo Portátil)
+        run: npm run test:e2e --workspace apps/api -- --ci 2>&1 | tee out/api/jest_e2e.log
+
+      - name: Compilar e montar o pacote (Azure App Service Linux / Node 22)
+        run: |
+          npm run build --workspace apps/api 2>&1 | tail -5
+          npm run pacote --workspace apps/api -- "$PWD/out/api/app" 2>&1 | tee out/api/pacote.log
+          (cd out/api/app && zip -qr ../MES_LION_API_NESTJS_app.zip .)
+          ls -la out/api/MES_LION_API_NESTJS_app.zip
+
+      - name: Iniciar API com SQL Server
+        run: |
+          mkdir -p out/api/Dados
+          cp tests/dados_teste/MES_LION_DATA_TESTE.json out/api/Dados/MES_LION_DATA.json
+          cd out/api/app
+          export ConnectionStrings__MesLion="Server=localhost,1433;Database=MesLionApiCI;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true"
+          export MesLion__Banco__Provedor=SqlServer
+          export MesLion__Relacional__AtrasoSegundos=2
+          nohup ./MesLion.Server --urls http://0.0.0.0:8765 > ../server_sql.log 2>&1 &   # 0.0.0.0: também testa o acesso remoto (rede)
+          for i in $(seq 1 180); do curl -sf http://127.0.0.1:8765/healthz && break; sleep 1; done
+          echo; curl -sf http://127.0.0.1:8765/healthz | tee ../healthz_sql.json || { tail -n 200 ../server_sql.log; exit 1; }
+
+      - name: Testes de API (SQL Server)
+        run: python tests/testes_api.py http://127.0.0.1:8765 out/api/Dados/MES_LION_DATA.json 2>&1 | tee out/api/testes_api_sql.log
+
+      - name: Verificação do banco SQL Server (esquema, camada relacional, views, FKs, sessões JWT)
+        run: python tests/verificar_sqlserver.py localhost 1433 sa "$SA_PASSWORD" MesLionApiCI http://127.0.0.1:8765 2>&1 | tee out/api/verificar_sqlserver.log
+
+      - name: Prisma — schema.prisma × banco criado pelos scripts (diagnóstico)
+        continue-on-error: true
+        working-directory: apps/api
+        env:
+          DATABASE_URL: "sqlserver://localhost:1433;database=MesLionApiCI;user=sa;password={MesLion#Teste2026};encrypt=true;trustServerCertificate=true"
+        run: |
+          npx prisma db pull --print > ../../out/api/prisma_db_pull.prisma 2> ../../out/api/prisma_db_pull.err || true
+          npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script > ../../out/api/prisma_diff.sql 2>&1 || true
+          echo "Diferenças (somente tabelas usadas pela API):"
+          grep -inE "users|app_state|app_storage|audit_log|equipment|attachments|published_passports|state_backups|auth_sessions|app_secrets|schema_version" ../../out/api/prisma_diff.sql | grep -viE "^\s*--" | head -60 || true
+
+      - name: Testes ponta a ponta no navegador (SQL Server)
+        run: |
+          IP=$(hostname -I | awk '{print $1}')
+          echo "Acesso remoto (rede) via http://$IP:8765"
+          python tests/e2e_fluxos.py http://127.0.0.1:8765 "http://$IP:8765" 2>&1 | tee out/api/e2e_sql.log
+
+      - name: A/B de telas — servidor original (contrato PowerShell) x API NestJS (SQL Server)
+        run: |
+          mkdir -p out/frontend_original
+          cp -r src/MesLion.Server/wwwroot/* out/frontend_original/
+          cp tests/referencia_frontend_original/index.html out/frontend_original/index.html
+          rm out/frontend_original/js/mes_plataforma_azure.js   # adaptador de plataforma (inclui a correção de ACV/LCC)
+          nohup python tests/servidor_referencia_contrato_ps.py --root out/frontend_original --seed out/api/Dados/MES_LION_DATA.json --port 8766 > out/api/ref.log 2>&1 &
+          python tests/seed_com_colecoes.py out/api/Dados/MES_LION_DATA.json out/api/seed_com_colecoes.json
+          nohup python tests/servidor_referencia_contrato_ps.py --root out/frontend_original --seed out/api/seed_com_colecoes.json --port 8768 > out/api/ref_colecoes.log 2>&1 &
+          cd out/api/app
+          export ConnectionStrings__MesLion="Server=localhost,1433;Database=MesLionApiAB;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true"
+          export MesLion__Banco__Provedor=SqlServer
+          export MesLion__Arquivos__PastaLocal=../DadosAB/Arquivos
+          nohup ./MesLion.Server --urls http://127.0.0.1:8767 > ../server_ab.log 2>&1 &
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8767/healthz && curl -s http://127.0.0.1:8766/ > /dev/null && curl -s http://127.0.0.1:8768/ > /dev/null && break; sleep 1; done
+          cd ../../..
+          python tests/ab_comparar_telas.py http://127.0.0.1:8766 http://127.0.0.1:8767 out/api/ab_resultado.json http://127.0.0.1:8768 2>&1 | tee out/api/ab_telas.log
+
+      - name: Primeira tela após o login — todas as opções do menu, sem erro JavaScript (SQL Server)
+        run: |
+          cd out/api/app
+          export ConnectionStrings__MesLion="Server=localhost,1433;Database=MesLionApiPT;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true"
+          export MesLion__Banco__Provedor=SqlServer
+          export MesLion__Arquivos__PastaLocal=../DadosPT/Arquivos
+          nohup ./MesLion.Server --urls http://127.0.0.1:8769 > ../server_pt.log 2>&1 &
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8769/healthz && break; sleep 1; done
+          cd ../../..
+          python tests/primeira_tela.py http://127.0.0.1:8769 2>&1 | tee out/api/primeira_tela.log
+
+      - name: Migração PostgreSQL → SQL Server (script de exportação + importação pela API)
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: python tests/teste_migracao.py out/api/app tests/dados_teste/MES_LION_DATA_TESTE.json "Server=localhost,1433;Database=MesLionApiMig;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true" 2>&1 | tee out/api/migracao.log
+
+      - name: Importação de pacote de migração no modo Portátil
+        run: python tests/teste_importacao_pacote.py out/api/app tests/dados_teste/MES_LION_DATA_TESTE.json 2>&1 | tee out/api/importacao_portatil.log
+
+      - name: Logs do servidor
+        if: always()
+        run: |
+          tail -n 80 out/api/server_sql.log || true
+          tail -n 40 out/api/server_ab.log || true
+
+      - name: Diagnóstico — publicar logs no release "ci-diagnostico"
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p diag
+          cp out/api/*.log out/api/*.json out/api/*.sql out/api/*.prisma out/api/*.err diag/ 2>/dev/null || true
+          echo "${{ github.sha }} ${{ job.status }}" > diag/execucao.txt
+          (cd diag && zip -qr ../diagnostico-api.zip .)
+          gh release create ci-diagnostico --repo "$GITHUB_REPOSITORY" --title "Diagnóstico do CI" --notes "Logs da última execução do CI (não é um pacote para uso)." --prerelease --target "$GITHUB_SHA" 2>/dev/null || true
+          for t in 1 2 3; do gh release upload ci-diagnostico diagnostico-api.zip --repo "$GITHUB_REPOSITORY" --clobber && break; sleep 5; done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resultados-api
+          path: |
+            out/api/*.log
+            out/api/ab_resultado.json
+            out/api/MES_LION_API_NESTJS_app.zip
+
   publicar:
     name: Publicar release "build-mais-recente"
-    needs: [ linux, windows ]
+    needs: [ linux, windows, api-nestjs ]
+    # Os pacotes do servidor .NET são publicados mesmo enquanto a API NestJS (fase 1) estiver em validação.
+    if: ${{ always() && needs.linux.result == 'success' && needs.windows.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
@@ -329,11 +509,16 @@ jobs:
       - name: Atualizar release
         env:
           GH_TOKEN: ${{ github.token }}
+          API_OK: ${{ needs.api-nestjs.result == 'success' }}
         run: |
           ls -R artefatos | head -50
+          extras=()
+          if [ "$API_OK" = "true" ] && [ -f artefatos/resultados-api/MES_LION_API_NESTJS_app.zip ]; then
+            extras+=(artefatos/resultados-api/MES_LION_API_NESTJS_app.zip)
+          fi
           gh release delete build-mais-recente --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
           gh release create build-mais-recente --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "Build mais recente ($GITHUB_SHA)" --notes "Pacotes gerados e testados automaticamente pelo CI." --prerelease \
             artefatos/resultados-windows/MES_LION_AZURE_win-x64_app.zip \
             artefatos/resultados-linux/MES_LION_AZURE_app-service.zip \
-            artefatos/resultados-linux/ab_resultado.json
+            artefatos/resultados-linux/ab_resultado.json "${extras[@]}"
