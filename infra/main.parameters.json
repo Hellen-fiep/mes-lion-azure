@@ -11,6 +11,7 @@
     "habilitarLoginMicrosoft": { "value": false },
     "entraClientId": { "value": "" },
     "exigirLoginMicrosoft": { "value": false },
-    "ipsLiberadosSql": { "value": [] }
+    "ipsLiberadosSql": { "value": [] },
+    "servidorAplicacao": { "value": "dotnet" }
   }
 }

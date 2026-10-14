@@ -23,6 +23,26 @@ Repositório `Hellen-fiep/mes-lion-azure`, branch `main`, commit indicado em `ev
 | Importação de pacote de migração com o **executável Windows** (`tests/teste_importacao_pacote.py`) | Windows Server 2022 | **7/7** |
 | Frontend publicado × original (`MANIFESTO_FRONTEND.txt`) | executável Windows | **44 arquivos** conferidos byte a byte |
 
+### API NestJS + Prisma (fase 1, `apps/api`)
+
+As mesmas suítes de caixa-preta rodam contra a API NestJS (job "API NestJS + Prisma" do CI), com SQL Server 2022 real:
+
+| Suíte | Ambiente | Resultado |
+|---|---|---|
+| Jest — unidade (`apps/api/src/**/*.spec.ts`), com os vetores dos testes do .NET | Node.js 22 | **105/105** |
+| Jest — e2e com supertest (`apps/api/test`) — pipeline HTTP e fluxo JWT completo | Node.js 22, modo Portátil | **9/9** |
+| API — contrato HTTP completo (`tests/testes_api.py`) | SQL Server 2022 | **95/95** |
+| API com documentos, anexos, passaportes e backups no **Azure Blob Storage** (emulador Azurite) | SQL Server 2022 + Azurite | **95/95** |
+| Banco SQL Server (`tests/verificar_sqlserver.py`) — inclui o script 006 e as sessões JWT | SQL Server 2022 | **46/46** |
+| `schema.prisma` × banco criado pelos scripts (`prisma migrate diff`) | SQL Server 2022 | sem diferenças nas tabelas da API |
+| Fluxos no navegador (`tests/e2e_fluxos.py`), acesso local e remoto | SQL Server 2022 | **25/25** |
+| Primeira tela após o login (`tests/primeira_tela.py`) | SQL Server 2022 | **32/32** |
+| A/B de telas contra o servidor original (`tests/ab_comparar_telas.py`) | SQL Server 2022 | **32/32** |
+| Migração PostgreSQL 16 → SQL Server (`tests/teste_migracao.py`) | PostgreSQL 16 + SQL Server 2022 | **25/25** |
+| Importação de pacote de migração (`tests/teste_importacao_pacote.py`) | modo Portátil | **7/7** |
+
+Detalhes em `docs/FASE1_NESTJS.md`.
+
 O executável Windows (`app\MesLion.Server.exe`, ~21 MB) é autocontido e enxuto: o .NET vai junto, com o código não
 usado do .NET/ASP.NET Core removido na publicação (*trimming* parcial); o código do MES, o `Microsoft.Data.SqlClient` e as
 bibliotecas de login Microsoft são mantidos inteiros. É exatamente esse arquivo que passou pelas suítes do Windows acima.
@@ -76,6 +96,17 @@ ID e conteúdo byte a byte, proteção contra sobrescrita e backup antes de reim
 
 > Os testes de API e de navegador **alteram os dados** (criam usuários, materiais, documentos e importam bancos).
 > Rode-os sempre numa **cópia de teste** com a base anonimizada — nunca no banco em uso.
+
+API NestJS (fase 1):
+
+```bash
+npm ci && npm run prisma:generate --workspace apps/api
+npm test && npm run test:e2e                                               # Jest (unidade + e2e)
+npm run build --workspace apps/api && npm run pacote --workspace apps/api  # pacote em apps/api/pacote/app
+# as suítes Python aceitam a API do mesmo jeito: apps/api/pacote/app/MesLion.Server --urls http://127.0.0.1:8799
+```
+
+Servidor .NET:
 
 ```powershell
 dotnet run -c Release --project tests/MesLion.Testes                       # unidade

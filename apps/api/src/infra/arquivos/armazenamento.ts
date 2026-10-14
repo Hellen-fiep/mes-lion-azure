@@ -137,6 +137,13 @@ export class ArmazenamentoAzureBlob implements ArmazenamentoArquivos {
 
   get descricao(): string {
     const id = !this.o.connectionString?.trim() || this.o.usarIdentidadeGerenciada ? ' (identidade gerenciada)' : '';
+    if (!this.urlConta) {
+      try {
+        this.container(); // só monta o cliente (sem acesso à rede) para mostrar a URL da conta
+      } catch {
+        // configuração inválida: o erro aparece ao inicializar
+      }
+    }
     return `Azure Blob Storage: ${this.urlConta || this.o.contaUrl || 'conta'}/${this.containerNome}${id}`;
   }
 

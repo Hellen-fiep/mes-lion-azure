@@ -1,0 +1,206 @@
+# =====================================================================
+# MES LION — Azure DevOps (padrão FIEP): API NestJS + Prisma (apps/api)
+#
+#  Estágio "Validar":   npm ci → Prisma generate → ESLint/TypeScript/Prettier → Jest (unidade com cobertura + e2e)
+#                       → build → pacote → API iniciada com SQL Server 2022 (contêiner) + suíte de contrato HTTP
+#                       (tests/testes_api.py, a mesma usada no servidor .NET) → artefato "api-app-service".
+#  Estágio "Implantar": opcional (parâmetro "implantar"), publica o pacote no Azure App Service (Linux, Node 22)
+#                       e confere /healthz. Requer uma service connection do tipo Azure Resource Manager.
+#
+# O GitHub Actions (.github/workflows/ci.yml) roda além disso as suítes de navegador, A/B de telas, migração do
+# PostgreSQL e o servidor .NET.
+# =====================================================================
+trigger:
+  branches:
+    include: [main]
+
+pr:
+  branches:
+    include: [main]
+
+parameters:
+  - name: implantar
+    displayName: Implantar no Azure App Service ao final (somente na branch main)
+    type: boolean
+    default: false
+  - name: conexaoAzure
+    displayName: Service connection do Azure (Azure Resource Manager)
+    type: string
+    default: mes-lion-azure
+  - name: appService
+    displayName: Nome do App Service (criado pelo infra/main.bicep com servidorAplicacao=nestjs)
+    type: string
+    default: meslion-api
+  - name: ambiente
+    displayName: Ambiente de implantação (Azure DevOps Environments; aprovações configuradas nele)
+    type: string
+    default: mes-lion-homologacao
+
+variables:
+  HUSKY: '0'
+  NODE_VERSION: '22.x'
+  npm_config_cache: $(Pipeline.Workspace)/.npm
+  # Senha do contêiner SQL Server efêmero usado só nos testes deste pipeline.
+  SA_PASSWORD: 'MesLion#Teste2026'
+
+resources:
+  containers:
+    - container: mssql
+      image: mcr.microsoft.com/mssql/server:2022-latest
+      env:
+        ACCEPT_EULA: 'Y'
+        MSSQL_SA_PASSWORD: 'MesLion#Teste2026'
+        MSSQL_PID: Developer
+      ports:
+        - 1433:1433
+
+stages:
+  - stage: Validar
+    displayName: Lint, testes e pacote
+    jobs:
+      - job: api
+        displayName: API NestJS + Prisma
+        pool:
+          vmImage: ubuntu-24.04
+        timeoutInMinutes: 45
+        services:
+          mssql: mssql
+        steps:
+          - checkout: self
+            fetchDepth: 1
+
+          - task: UseNode@1
+            displayName: Node.js $(NODE_VERSION)
+            inputs:
+              version: $(NODE_VERSION)
+
+          - task: Cache@2
+            displayName: Cache do npm
+            inputs:
+              key: 'npm | "$(Agent.OS)" | package-lock.json'
+              restoreKeys: |
+                npm | "$(Agent.OS)"
+              path: $(npm_config_cache)
+
+          - script: |
+              npm ci
+              npm run prisma:generate --workspace apps/api
+            displayName: Dependências (npm ci) e cliente Prisma
+
+          - script: |
+              npm run lint
+              npm run typecheck
+              npm run format:check
+            displayName: ESLint, TypeScript e Prettier
+
+          - script: npm run test:cov --workspace apps/api -- --ci --reporters=default --reporters=jest-junit
+            displayName: Jest — unidade (cobertura)
+            env:
+              JEST_JUNIT_OUTPUT_DIR: $(Build.SourcesDirectory)/apps/api/relatorios
+              JEST_JUNIT_OUTPUT_NAME: jest-unidade.xml
+
+          - script: npm run test:e2e --workspace apps/api -- --ci --reporters=default --reporters=jest-junit
+            displayName: Jest — e2e (supertest, modo Portátil)
+            env:
+              JEST_JUNIT_OUTPUT_DIR: $(Build.SourcesDirectory)/apps/api/relatorios
+              JEST_JUNIT_OUTPUT_NAME: jest-e2e.xml
+
+          - task: PublishTestResults@2
+            displayName: Resultados dos testes (Jest)
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: apps/api/relatorios/*.xml
+              testRunTitle: API NestJS — Jest
+
+          - task: PublishCodeCoverageResults@2
+            displayName: Cobertura (Jest)
+            condition: succeededOrFailed()
+            inputs:
+              summaryFileLocation: apps/api/coverage/cobertura-coverage.xml
+
+          - script: |
+              npm run build --workspace apps/api
+              npm run pacote --workspace apps/api -- "$(Build.ArtifactStagingDirectory)/app"
+            displayName: Compilar e montar o pacote
+
+          - script: |
+              set -e
+              pip install --quiet requests pymssql
+              python3 - <<'EOF'
+              import time, pymssql
+              for i in range(90):
+                  try:
+                      pymssql.connect(server='localhost', port=1433, user='sa', password='$(SA_PASSWORD)', login_timeout=5).close()
+                      print('SQL Server pronto'); break
+                  except Exception as e:
+                      time.sleep(2)
+              else:
+                  raise SystemExit('SQL Server não respondeu')
+              EOF
+              mkdir -p "$(Agent.TempDirectory)/Dados"
+              cp tests/dados_teste/MES_LION_DATA_TESTE.json "$(Agent.TempDirectory)/Dados/MES_LION_DATA.json"
+              cd "$(Build.ArtifactStagingDirectory)/app"
+              export ConnectionStrings__MesLion="Server=localhost,1433;Database=MesLionDevOps;User ID=sa;Password=$(SA_PASSWORD);Encrypt=true;TrustServerCertificate=true"
+              export MesLion__Banco__Provedor=SqlServer
+              export MesLion__Seed__ArquivoInicial="$(Agent.TempDirectory)/Dados/MES_LION_DATA.json"
+              export MesLion__Arquivos__PastaLocal="$(Agent.TempDirectory)/Dados/Arquivos"
+              nohup ./MesLion.Server --urls http://127.0.0.1:8765 > "$(Agent.TempDirectory)/servidor.log" 2>&1 &
+              for i in $(seq 1 120); do curl -sf http://127.0.0.1:8765/healthz && break; sleep 1; done
+              curl -sf http://127.0.0.1:8765/healthz || { tail -n 100 "$(Agent.TempDirectory)/servidor.log"; exit 1; }
+              cd "$(Build.SourcesDirectory)"
+              python3 tests/testes_api.py http://127.0.0.1:8765 "$(Agent.TempDirectory)/Dados/MES_LION_DATA.json"
+            displayName: Contrato HTTP com SQL Server 2022 (tests/testes_api.py)
+
+          - script: tail -n 80 "$(Agent.TempDirectory)/servidor.log" || true
+            displayName: Log do servidor
+            condition: always()
+
+          - task: ArchiveFiles@2
+            displayName: Compactar o pacote
+            inputs:
+              rootFolderOrFile: $(Build.ArtifactStagingDirectory)/app
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: $(Build.ArtifactStagingDirectory)/MES_LION_API_NESTJS_app.zip
+
+          - publish: $(Build.ArtifactStagingDirectory)/MES_LION_API_NESTJS_app.zip
+            artifact: api-app-service
+            displayName: Publicar artefato (pacote do App Service)
+
+  - ${{ if eq(parameters.implantar, true) }}:
+      - stage: Implantar
+        displayName: Implantar no Azure App Service
+        dependsOn: Validar
+        condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+        jobs:
+          - deployment: appService
+            displayName: App Service ${{ parameters.appService }}
+            environment: ${{ parameters.ambiente }}
+            pool:
+              vmImage: ubuntu-24.04
+            strategy:
+              runOnce:
+                deploy:
+                  steps:
+                    - download: current
+                      artifact: api-app-service
+
+                    - task: AzureWebApp@1
+                      displayName: Publicar o pacote (Node 22)
+                      inputs:
+                        azureSubscription: ${{ parameters.conexaoAzure }}
+                        appType: webAppLinux
+                        appName: ${{ parameters.appService }}
+                        package: $(Pipeline.Workspace)/api-app-service/MES_LION_API_NESTJS_app.zip
+                        runtimeStack: NODE|22-lts
+                        startUpCommand: node dist/main.js
+                        deploymentMethod: zipDeploy
+
+                    - script: |
+                        for i in $(seq 1 30); do
+                          if curl -sf "https://${{ parameters.appService }}.azurewebsites.net/healthz"; then echo; exit 0; fi
+                          sleep 10
+                        done
+                        echo "A aplicação não respondeu em /healthz"; exit 1
+                      displayName: Conferir /healthz

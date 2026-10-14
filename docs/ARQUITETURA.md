@@ -150,3 +150,13 @@ recebe os dados iniciais de `Dados/MES_LION_DATA.json` — ou os dados migrados 
   Entrada de Materiais ou Processos o exibe), igual ao original.
 * O QR da etiqueta do passaporte aponta para o GitHub Pages (regra da V40.4.5 do frontend); a publicação no próprio
   servidor (`/passaporte/{id}.html`) também está disponível.
+
+## 9. Fase 1 do padrão FIEP: API em NestJS + Prisma
+
+O servidor também foi reescrito no padrão de backend da FIEP, em `apps/api`: **NestJS** (módulos de domínio com
+controller/service/DTO/entidade), **Prisma** (SQL Server / Azure SQL), **class-validator**, login com **JWT de acesso +
+refresh token** rotativo e revogável, **Swagger** (`/api/docs`), **Jest**, **ESLint/Prettier/husky/lint-staged**, pipeline do
+**Azure DevOps** (`azure-pipelines.yml`) e **Sentry**. O contrato HTTP, o frontend, o banco (scripts 001–005, mais o 006 com
+as sessões JWT) e os arquivos são os mesmos: os dois servidores podem usar o mesmo banco, e o App Service escolhe um ou outro
+pelo parâmetro `servidorAplicacao` do Bicep. A API passa nas mesmas suítes de teste do servidor .NET — veja
+`docs/FASE1_NESTJS.md`.

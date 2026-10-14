@@ -1,10 +1,12 @@
 ﻿<#
 =====================================================================
  MES LION — Implantação no Microsoft Azure (Azure CLI + Bicep)
- Pré-requisitos: Azure CLI (az) com permissão de Colaborador na assinatura/grupo e
- o pacote MES_LION_AZURE_app-service.zip (pasta azure\ do pacote ou release do CI).
+ Pré-requisitos: Azure CLI (az) com permissão de Colaborador na assinatura/grupo e o pacote do servidor:
+ MES_LION_AZURE_app-service.zip (.NET, padrão) ou MES_LION_API_NESTJS_app.zip (API NestJS, -Servidor nestjs),
+ da pasta azure\ do pacote ou do release "build-mais-recente" do CI.
  Uso:
    .\implantar-azure.ps1 -GrupoRecursos rg-meslion -Regiao brazilsouth -Pacote .\MES_LION_AZURE_app-service.zip
+   .\implantar-azure.ps1 -GrupoRecursos rg-meslion -Servidor nestjs -Pacote .\MES_LION_API_NESTJS_app.zip
 =====================================================================
 #>
 param(
@@ -15,7 +17,9 @@ param(
     [string]$SkuBanco = 'S0',
     [string]$Pacote = '',
     [switch]$LoginMicrosoft,
-    [string]$EntraClientId = ''
+    [string]$EntraClientId = '',
+    [ValidateSet('dotnet', 'nestjs')]
+    [string]$Servidor = 'dotnet'
 )
 $ErrorActionPreference = 'Stop'
 $aqui = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -40,7 +44,7 @@ $saida = az deployment group create -g $GrupoRecursos -f (Join-Path $aqui 'main.
     -p nomeBase=$NomeBase skuAppService=$SkuAppService skuBanco=$SkuBanco `
        adminEntraLogin=$($eu.userPrincipalName) adminEntraObjectId=$($eu.id) adminEntraTipo=User `
        habilitarLoginMicrosoft=$($LoginMicrosoft.IsPresent.ToString().ToLower()) entraClientId=$EntraClientId `
-       ipsLiberadosSql=$ips `
+       ipsLiberadosSql=$ips servidorAplicacao=$Servidor `
     --query properties.outputs -o json | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'Falha na implantação do Bicep.' }
 
@@ -68,7 +72,8 @@ if ($Pacote) {
     Write-Host "Aplicativo publicado: $($saida.urlAplicacao.value)" -ForegroundColor Green
 } else {
     Write-Host 'Pacote não informado: publique depois com'
-    Write-Host "  az webapp deploy -g $GrupoRecursos -n $app --src-path MES_LION_AZURE_app-service.zip --type zip"
+    $nomePacote = if ($Servidor -eq 'nestjs') { 'MES_LION_API_NESTJS_app.zip' } else { 'MES_LION_AZURE_app-service.zip' }
+    Write-Host "  az webapp deploy -g $GrupoRecursos -n $app --src-path $nomePacote --type zip"
 }
 Write-Host ''
 Write-Host 'Próximos passos: migrar os dados (docs/AZURE.md, seção "Migração dos dados") e validar em /healthz.'

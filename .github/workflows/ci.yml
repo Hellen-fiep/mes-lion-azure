@@ -381,6 +381,9 @@ jobs:
           npm run typecheck 2>&1 | tee -a out/api/lint.log
           npm run format:check 2>&1 | tee -a out/api/lint.log
 
+      - name: Infraestrutura — infra/main.bicep compila (servidor .NET ou API NestJS)
+        run: az bicep build --file infra/main.bicep --stdout > /dev/null && echo "Bicep OK"
+
       - name: Testes Jest — unidade (com cobertura)
         run: npm run test:cov --workspace apps/api -- --ci 2>&1 | tee out/api/jest_unidade.log
 
@@ -412,16 +415,14 @@ jobs:
       - name: Verificação do banco SQL Server (esquema, camada relacional, views, FKs, sessões JWT)
         run: python tests/verificar_sqlserver.py localhost 1433 sa "$SA_PASSWORD" MesLionApiCI http://127.0.0.1:8765 2>&1 | tee out/api/verificar_sqlserver.log
 
-      - name: Prisma — schema.prisma × banco criado pelos scripts (diagnóstico)
-        continue-on-error: true
+      - name: Prisma — schema.prisma corresponde ao banco criado pelos scripts T-SQL
         working-directory: apps/api
         env:
           DATABASE_URL: "sqlserver://localhost:1433;database=MesLionApiCI;user=sa;password={MesLion#Teste2026};encrypt=true;trustServerCertificate=true"
         run: |
           npx prisma db pull --print > ../../out/api/prisma_db_pull.prisma 2> ../../out/api/prisma_db_pull.err || true
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script > ../../out/api/prisma_diff.sql 2>&1 || true
-          echo "Diferenças (somente tabelas usadas pela API):"
-          grep -inE "users|app_state|app_storage|audit_log|equipment|attachments|published_passports|state_backups|auth_sessions|app_secrets|schema_version" ../../out/api/prisma_diff.sql | grep -viE "^\s*--" | head -60 || true
+          node scripts/conferir-esquema-prisma.mjs ../../out/api/prisma_diff.sql 2>&1 | tee ../../out/api/prisma_esquema.log
 
       - name: Testes ponta a ponta no navegador (SQL Server)
         run: |
@@ -468,6 +469,26 @@ jobs:
 
       - name: Importação de pacote de migração no modo Portátil
         run: python tests/teste_importacao_pacote.py out/api/app tests/dados_teste/MES_LION_DATA_TESTE.json 2>&1 | tee out/api/importacao_portatil.log
+
+      - name: Arquivos no Azure Blob Storage (emulador Azurite) — documentos, anexos, passaportes e backups
+        run: |
+          mkdir -p out/api/azurite
+          nohup npx --yes -p azurite@3.37.0 azurite-blob --silent --location out/api/azurite --blobHost 127.0.0.1 --blobPort 10000 --skipApiVersionCheck > out/api/azurite.log 2>&1 &
+          for i in $(seq 1 60); do curl -s -o /dev/null http://127.0.0.1:10000/devstoreaccount1 && break; sleep 1; done
+          mkdir -p out/api/DadosBlob
+          cp tests/dados_teste/MES_LION_DATA_TESTE.json out/api/DadosBlob/MES_LION_DATA.json
+          cd out/api/app
+          export MesLion__Banco__Provedor=SqlServer
+          export ConnectionStrings__MesLion="Server=localhost,1433;Database=MesLionApiBlob;User ID=sa;Password=$SA_PASSWORD;Encrypt=true;TrustServerCertificate=true"
+          export MesLion__Seed__ArquivoInicial=../DadosBlob/MES_LION_DATA.json
+          export MesLion__Arquivos__Provedor=AzureBlob
+          export MesLion__Arquivos__AzureBlob__ConnectionString="UseDevelopmentStorage=true"
+          export MesLion__Arquivos__AzureBlob__Container=meslion-ci
+          nohup ./MesLion.Server --urls http://127.0.0.1:8771 > ../server_blob.log 2>&1 &
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8771/healthz && break; sleep 1; done
+          cd ../../..
+          grep -m1 "Arquivos: Azure Blob" out/api/server_blob.log
+          python tests/testes_api.py http://127.0.0.1:8771 out/api/DadosBlob/MES_LION_DATA.json 2>&1 | tee out/api/testes_api_blob.log
 
       - name: Logs do servidor
         if: always()

@@ -1,6 +1,6 @@
 // =====================================================================
 // MES LION — Infraestrutura Microsoft Azure (Bicep)
-// Cria: App Service (Linux, .NET 10) com identidade gerenciada, Azure SQL Database
+// Cria: App Service (Linux, .NET 10 ou Node.js 22 — API NestJS) com identidade gerenciada, Azure SQL Database
 // (autenticação somente Microsoft Entra ID), Storage Account (Blob) para documentos/anexos/
 // backups, Application Insights + Log Analytics e, opcionalmente, login Microsoft Entra ID
 // (App Service Authentication / "Easy Auth").
@@ -54,6 +54,14 @@ param exigirLoginMicrosoft bool = false
 @description('IPs públicos (ex.: da rede da empresa) liberados no firewall do Azure SQL para a TI/migração.')
 param ipsLiberadosSql array = []
 
+@description('Servidor da aplicação: "dotnet" (ASP.NET Core .NET 10 — pacote MES_LION_AZURE_app-service.zip) ou "nestjs" (API NestJS + Prisma em Node.js 22 — pacote MES_LION_API_NESTJS_app.zip). Os dois usam o mesmo banco, os mesmos arquivos e o mesmo frontend.')
+@allowed([ 'dotnet', 'nestjs' ])
+param servidorAplicacao string = 'dotnet'
+
+@secure()
+@description('DSN do Sentry (opcional; somente API NestJS): monitoramento de erros e desempenho.')
+param sentryDsn string = ''
+
 var sufixo = take(uniqueString(resourceGroup().id, nomeBase), 8)
 var nomeLimpo = toLower(replace(nomeBase, '-', ''))
 var nomeApp = '${nomeLimpo}-${sufixo}'
@@ -66,9 +74,10 @@ var nomeLogs = 'log-${nomeLimpo}-${sufixo}'
 var nomeInsights = 'appi-${nomeLimpo}-${sufixo}'
 var tierBanco = skuBanco == 'Basic' ? 'Basic' : 'Standard'
 var papelStorageBlobDataContributor = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
+var nestjs = servidorAplicacao == 'nestjs'
 var tags = {
   aplicacao: 'MES LION'
-  arquitetura: 'ASP.NET Core .NET 10 + Azure SQL + Blob Storage'
+  arquitetura: nestjs ? 'NestJS + Prisma (Node.js 22) + Azure SQL + Blob Storage' : 'ASP.NET Core .NET 10 + Azure SQL + Blob Storage'
 }
 
 // ------------------------------------------------------------------ monitoramento
@@ -179,7 +188,7 @@ resource sqlDb 'Microsoft.Sql/servers/databases@2021-11-01' = {
   }
 }
 
-// ------------------------------------------------------------------ App Service (Linux, .NET 10)
+// ------------------------------------------------------------------ App Service (Linux, .NET 10 ou Node.js 22)
 resource plano 'Microsoft.Web/serverfarms@2022-09-01' = {
   name: nomePlano
   location: local
@@ -207,7 +216,15 @@ var configuracoesBase = [
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: insights.properties.ConnectionString }
   { name: 'ApplicationInsightsAgent_EXTENSION_VERSION', value: '~3' }
   { name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE', value: 'true' }
+  // O pacote já vem compilado (com as dependências de produção): o App Service não deve recompilar.
+  { name: 'SCM_DO_BUILD_DURING_DEPLOYMENT', value: 'false' }
 ]
+var configuracoesNest = nestjs ? concat([
+  { name: 'NODE_ENV', value: 'production' }
+], empty(sentryDsn) ? [] : [
+  { name: 'MesLion__Monitoramento__SentryDsn', value: sentryDsn }
+  { name: 'MesLion__Monitoramento__Ambiente', value: 'azure' }
+]) : []
 var configuracoesSegredo = (habilitarLoginMicrosoft && !empty(entraClientSecret)) ? [
   { name: 'MICROSOFT_PROVIDER_AUTHENTICATION_SECRET', value: entraClientSecret }
 ] : []
@@ -223,14 +240,14 @@ resource app 'Microsoft.Web/sites@2022-09-01' = {
     httpsOnly: true
     clientAffinityEnabled: true
     siteConfig: {
-      linuxFxVersion: 'DOTNETCORE|10.0'
-      appCommandLine: 'dotnet MesLion.Server.dll'
+      linuxFxVersion: nestjs ? 'NODE|22-lts' : 'DOTNETCORE|10.0'
+      appCommandLine: nestjs ? 'node dist/main.js' : 'dotnet MesLion.Server.dll'
       alwaysOn: true
       http20Enabled: true
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
       healthCheckPath: '/healthz'
-      appSettings: concat(configuracoesBase, configuracoesSegredo)
+      appSettings: concat(configuracoesBase, configuracoesNest, configuracoesSegredo)
       connectionStrings: [
         {
           name: 'MesLion'
@@ -293,3 +310,4 @@ output bancoSql string = nomeBanco
 output contaStorage string = storage.name
 output urlBlob string = storage.properties.primaryEndpoints.blob
 output applicationInsights string = insights.name
+output servidor string = servidorAplicacao

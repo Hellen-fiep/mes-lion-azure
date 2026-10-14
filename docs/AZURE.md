@@ -45,6 +45,15 @@ Na primeira inicialização o MES cria o esquema no Azure SQL (scripts 001–005
 Confira em `https://<app>.azurewebsites.net/healthz` (deve responder `"status":"ok"` e `"banco":"SqlServer"`)
 e entre com **admin / meslion2026** — **troque essa senha** em Usuários / Segurança.
 
+**API NestJS (fase 1)** — a mesma infraestrutura serve para a API em NestJS + Prisma (Node.js 22): use
+`-Servidor nestjs` e o pacote `MES_LION_API_NESTJS_app.zip` (release "build-mais-recente" do CI). O banco, os arquivos e o
+frontend são os mesmos; o Bicep ajusta só o runtime do App Service (`servidorAplicacao=nestjs`). O pipeline do Azure
+DevOps (`azure-pipelines.yml`) também publica esse pacote — veja `docs/FASE1_NESTJS.md`.
+
+```powershell
+.\implantar-azure.ps1 -GrupoRecursos rg-meslion -Regiao brazilsouth -Servidor nestjs -Pacote .\MES_LION_API_NESTJS_app.zip
+```
+
 Implantação manual equivalente (para a TI / pipelines):
 
 ```powershell
