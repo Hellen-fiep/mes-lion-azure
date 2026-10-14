@@ -127,6 +127,14 @@ export function configurarSwagger(app: NestExpressApplication): void {
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
     .build();
   const documento = SwaggerModule.createDocument(app, config);
+  // Rotas que aceitam qualquer método (@All, como o app.Map do servidor .NET) aparecem uma vez só, como GET.
+  for (const operacoes of Object.values(documento.paths) as Record<string, { description?: string } | undefined>[]) {
+    if (!operacoes.search || !operacoes.get) continue;
+    for (const metodo of ['post', 'put', 'delete', 'patch', 'options', 'head', 'search']) delete operacoes[metodo];
+    const get = operacoes.get;
+    get.description =
+      (get.description ? get.description + '\n\n' : '') + 'Aceita qualquer método HTTP, como no servidor original.';
+  }
   SwaggerModule.setup(CAMINHO_SWAGGER, app, documento, {
     jsonDocumentUrl: `${CAMINHO_SWAGGER}-json`,
     customSiteTitle: 'MES LION — API',

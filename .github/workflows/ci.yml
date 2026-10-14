@@ -384,11 +384,8 @@ jobs:
       - name: Infraestrutura — infra/main.bicep compila (servidor .NET ou API NestJS)
         run: az bicep build --file infra/main.bicep --stdout > /dev/null && echo "Bicep OK"
 
-      - name: Testes Jest — unidade (com cobertura)
-        run: npm run test:cov --workspace apps/api -- --ci 2>&1 | tee out/api/jest_unidade.log
-
-      - name: Testes Jest — e2e (supertest, modo Portátil)
-        run: npm run test:e2e --workspace apps/api -- --ci 2>&1 | tee out/api/jest_e2e.log
+      - name: Testes Jest — unidade + e2e (supertest, modo Portátil), com cobertura combinada
+        run: npm run test:cov --workspace apps/api -- --ci 2>&1 | tee out/api/jest.log
 
       - name: Compilar e montar o pacote (Azure App Service Linux / Node 22)
         run: |

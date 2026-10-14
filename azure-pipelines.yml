@@ -94,16 +94,10 @@ stages:
             displayName: ESLint, TypeScript e Prettier
 
           - script: npm run test:cov --workspace apps/api -- --ci --reporters=default --reporters=jest-junit
-            displayName: Jest — unidade (cobertura)
+            displayName: Jest — unidade + e2e (cobertura combinada)
             env:
               JEST_JUNIT_OUTPUT_DIR: $(Build.SourcesDirectory)/apps/api/relatorios
-              JEST_JUNIT_OUTPUT_NAME: jest-unidade.xml
-
-          - script: npm run test:e2e --workspace apps/api -- --ci --reporters=default --reporters=jest-junit
-            displayName: Jest — e2e (supertest, modo Portátil)
-            env:
-              JEST_JUNIT_OUTPUT_DIR: $(Build.SourcesDirectory)/apps/api/relatorios
-              JEST_JUNIT_OUTPUT_NAME: jest-e2e.xml
+              JEST_JUNIT_OUTPUT_NAME: jest.xml
 
           - task: PublishTestResults@2
             displayName: Resultados dos testes (Jest)

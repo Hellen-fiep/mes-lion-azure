@@ -8,7 +8,7 @@
 //  - Logout e desativação do usuário revogam a sessão (vale em até 20 s em todas as instâncias).
 // =====================================================================
 import { randomBytes, randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { CookieOptions, Request, Response } from 'express';
 import { hex, sha256 } from '../../comum/json-estado';
@@ -59,8 +59,9 @@ export interface ResultadoRenovacao {
 const tokenOpaco = () => randomBytes(32).toString('base64url');
 
 @Injectable()
-export class SessoesService {
+export class SessoesService implements OnApplicationShutdown {
   private readonly log = new Logger('MesLion.Sessoes');
+  private limpeza: NodeJS.Timeout | null = null;
   private segredo: Buffer | null = null;
   private readonly cacheSessoes = new Map<string, { sessao: SessaoAutenticacao; expira: number }>();
   private readonly renovacoes = new Map<string, Promise<ResultadoRenovacao | null>>();
@@ -269,7 +270,19 @@ export class SessoesService {
     for (const id of ids) await this.revogar(id, 'logout');
   }
 
-  /** Remove sessões vencidas há mais de 7 dias (executado na inicialização e periodicamente). */
+  /** Limpeza das sessões vencidas a cada 6 horas (somente no modo servidor; não segura o encerramento do processo). */
+  iniciarLimpezaPeriodica(): void {
+    if (this.limpeza) return;
+    this.limpeza = setInterval(() => void this.limparVencidas(), 6 * 3600 * 1000);
+    this.limpeza.unref();
+  }
+
+  onApplicationShutdown(): void {
+    if (this.limpeza) clearInterval(this.limpeza);
+    this.limpeza = null;
+  }
+
+  /** Remove sessões vencidas ou revogadas há mais de 7 dias (na inicialização e a cada 6 horas). */
   async limparVencidas(): Promise<void> {
     try {
       const n = await this.provedor.sessoes.limpar(new Date(Date.now() - 7 * 24 * 3600 * 1000));

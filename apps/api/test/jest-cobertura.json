@@ -1,0 +1,37 @@
+{
+  "rootDir": "..",
+  "projects": [
+    {
+      "displayName": "unidade",
+      "rootDir": ".",
+      "roots": ["<rootDir>/src"],
+      "moduleFileExtensions": ["js", "json", "ts"],
+      "testRegex": ".*\\.spec\\.ts$",
+      "transform": { "^.+\\.(t|j)s$": "ts-jest" },
+      "moduleNameMapper": { "^(\\.{1,2}/.*)\\.js$": "$1" },
+      "setupFiles": ["<rootDir>/test/silenciar-logs.ts"],
+      "testEnvironment": "node"
+    },
+    {
+      "displayName": "e2e",
+      "rootDir": ".",
+      "roots": ["<rootDir>/test"],
+      "moduleFileExtensions": ["js", "json", "ts"],
+      "testRegex": ".e2e-spec.ts$",
+      "transform": { "^.+\\.(t|j)s$": "ts-jest" },
+      "moduleNameMapper": { "^(\\.{1,2}/.*)\\.js$": "$1" },
+      "setupFiles": ["<rootDir>/test/silenciar-logs.ts"],
+      "testEnvironment": "node",
+      "testTimeout": 60000
+    }
+  ],
+  "collectCoverageFrom": [
+    "src/**/*.ts",
+    "!src/generated/**",
+    "!src/**/*.spec.ts",
+    "!src/main.ts",
+    "!src/instrument.ts"
+  ],
+  "coverageDirectory": "<rootDir>/coverage",
+  "coverageReporters": ["text-summary", "lcov", "cobertura"]
+}

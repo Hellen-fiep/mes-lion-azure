@@ -30,7 +30,7 @@ As mesmas suítes de caixa-preta rodam contra a API NestJS (job "API NestJS + Pr
 | Suíte | Ambiente | Resultado |
 |---|---|---|
 | Jest — unidade (`apps/api/src/**/*.spec.ts`), com os vetores dos testes do .NET | Node.js 22 | **105/105** |
-| Jest — e2e com supertest (`apps/api/test`) — pipeline HTTP e fluxo JWT completo | Node.js 22, modo Portátil | **9/9** |
+| Jest — e2e com supertest (`apps/api/test`) — pipeline HTTP e fluxo JWT completo | Node.js 22, modo Portátil | **9/9** (cobertura combinada do Jest: 70% das linhas) |
 | API — contrato HTTP completo (`tests/testes_api.py`) | SQL Server 2022 | **95/95** |
 | API com documentos, anexos, passaportes e backups no **Azure Blob Storage** (emulador Azurite) | SQL Server 2022 + Azurite | **95/95** |
 | Banco SQL Server (`tests/verificar_sqlserver.py`) — inclui o script 006 e as sessões JWT | SQL Server 2022 | **46/46** |

@@ -11,7 +11,7 @@ repositório, inalterado, e os dois podem usar o **mesmo banco** e a **mesma pas
 | class-validator | DTOs com `class-validator` + `class-transformer`, devolvendo as **mesmas mensagens de erro** do contrato original |
 | JWT access + refresh | token de acesso (15 min) + refresh token rotativo (sessão deslizante de 12 h), revogável |
 | Swagger | `/api/docs` (interface) e `/api/docs-json` (OpenAPI), gerados pelos decorators |
-| Jest | 105 testes de unidade + 9 testes e2e (supertest) |
+| Jest | 105 testes de unidade + 9 testes e2e (supertest); cobertura combinada de 70% das linhas |
 | ESLint / Prettier / husky / lint-staged | `eslint.config.mjs` (typescript-eslint com verificação de tipos), `.prettierrc`, hook de pre-commit |
 | Azure DevOps | `azure-pipelines.yml` (lint, testes, pacote, contrato HTTP com SQL Server, implantação opcional) |
 | Sentry | `@sentry/nestjs`, ligado só quando há DSN; não envia corpos, cookies nem tokens |
@@ -148,7 +148,10 @@ o frontend (`wwwroot`), os scripts SQL e somente as dependências de produção.
 
 * `npm run lint` (ESLint com verificação de tipos), `npm run typecheck`, `npm run format:check` (Prettier).
 * Antes de cada commit, o **husky** roda o **lint-staged**: Prettier e ESLint (sem avisos) nos arquivos alterados da API.
-* `npm test` (unidade), `npm run test:cov` (cobertura), `npm run test:e2e` (supertest).
+* `npm test` (unidade), `npm run test:e2e` (supertest) e `npm run test:cov` (os dois, com cobertura combinada em
+  `apps/api/coverage`: texto, lcov e Cobertura para o Azure DevOps). A cobertura do Jest é de 70% das linhas; o que fica
+  de fora (SQL Server, Azure Blob, migração do PostgreSQL, camada relacional) é exercitado pelas suítes de caixa-preta
+  do CI, com SQL Server, PostgreSQL e o emulador do Azure Storage reais.
 
 Os testes de unidade reaproveitam os **mesmos vetores** dos testes do servidor .NET (hashes bcrypt gerados pelo pgcrypto,
 vetores públicos OpenBSD/jBCrypt, divisão do estado, gerador de views) e hashes PBKDF2 gerados por outra implementação
@@ -159,7 +162,7 @@ vetores públicos OpenBSD/jBCrypt, divisão do estado, gerador de views) e hashe
 | Suíte | Ambiente | API NestJS |
 |---|---|---|
 | Jest — unidade | Node 22 | **105/105** |
-| Jest — e2e (supertest) | Node 22, modo Portátil | **9/9** |
+| Jest — e2e (supertest) | Node 22, modo Portátil | **9/9** (cobertura combinada: 70% das linhas) |
 | Contrato HTTP (`tests/testes_api.py`) | SQL Server 2022 | **95/95** |
 | Contrato HTTP com arquivos no **Azure Blob Storage** (emulador Azurite) | SQL Server 2022 + Azurite | **95/95** |
 | Banco SQL Server (`tests/verificar_sqlserver.py`) — esquema, camada relacional, sessões JWT | SQL Server 2022 | **46/46** |
@@ -176,7 +179,8 @@ servidor .NET.
 
 `azure-pipelines.yml` (na raiz):
 
-1. **Validar**: `npm ci` → Prisma → ESLint/TypeScript/Prettier → Jest (resultados e cobertura publicados no Azure DevOps)
+1. **Validar**: `npm ci` → Prisma → ESLint/TypeScript/Prettier → Jest unidade + e2e (resultados JUnit e cobertura
+   Cobertura publicados no Azure DevOps)
    → build → pacote → API iniciada com **SQL Server 2022** (contêiner de serviço) → `tests/testes_api.py` → artefato
    `api-app-service`.
 2. **Implantar** (opcional, só na `main`): publica o pacote no App Service e confere `/healthz`.

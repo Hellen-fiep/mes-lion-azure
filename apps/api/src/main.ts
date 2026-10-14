@@ -21,6 +21,7 @@ import { CAMINHO_SWAGGER, configurarHttp } from './http';
 import { ARMAZENAMENTO_ARQUIVOS, type ArmazenamentoArquivos } from './infra/arquivos/armazenamento';
 import { ipRedeLocal } from './modulos/arquivos/passaportes.controller';
 import { EstadoService } from './modulos/estado/estado.service';
+import { SessoesService } from './modulos/autenticacao/sessoes.service';
 import { ImportadorPostgresqlService } from './modulos/migracao/importador-postgresql.service';
 import { InicializacaoService } from './modulos/plataforma/inicializacao.service';
 import { RelacionalService } from './modulos/relacional/relacional.service';
@@ -207,6 +208,7 @@ async function principal(): Promise<number> {
     return 2;
   }
   app.get(RelacionalService).iniciar();
+  app.get(SessoesService).iniciarLimpezaPeriodica();
   banner(cfg, app, enderecos);
   return -1; // servidor em execução
 }
