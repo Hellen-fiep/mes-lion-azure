@@ -17,10 +17,15 @@ contrato HTTP, login com **JWT (acesso + refresh)**, **Swagger**, **Jest**, **ES
 pipeline do **Azure DevOps** e **Sentry**. Ele passa nas mesmas suítes de teste do servidor .NET, com SQL Server 2022 real.
 Veja `docs/FASE1_NESTJS.md`.
 
+**MES LION 1.0 JSON (sem PostgreSQL):** para PCs sem banco instalado, o MES PowerShell original com os dados em
+arquivos JSON (`versao_json/`): mesmo frontend byte a byte, abre com `INICIAR_MES.bat`, só precisa do Windows PowerShell 5.1.
+Traz do PostgreSQL os dados, os usuários (mesmas senhas) e o histórico. Veja `docs/VERSAO_JSON.md`.
+
 ## Estrutura
 
 ```
 apps/api/                  API NestJS + Prisma (fase 1, padrão FIEP) — mesmo contrato HTTP, JWT, Swagger, Jest
+versao_json/               MES LION 1.0 JSON: servidor PowerShell sem PostgreSQL, importador do PostgreSQL e lançadores .bat
 src/MesLion.Server/        Servidor ASP.NET Core (C#) + frontend em wwwroot + scripts T-SQL embutidos (Sql/)
   Api/                     Rotas HTTP (mesmo contrato do servidor PowerShell)
   Estado/                  Persistência do estado do MES (divisão por coleção, sem reserializar)

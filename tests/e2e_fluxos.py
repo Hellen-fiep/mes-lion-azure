@@ -16,7 +16,7 @@ BASE = sys.argv[1].rstrip('/')
 REMOTA = sys.argv[2].rstrip('/') if len(sys.argv) > 2 else None
 CHROME = os.environ.get('MES_CHROME') or ('/opt/pw-browsers/chromium-1194/chrome-linux/chrome' if os.path.exists('/opt/pw-browsers/chromium-1194/chrome-linux/chrome') else None)
 falhas, total = [], 0
-ERROS_CONHECIDOS = ()  # nenhum: o erro herdado de ACV/LCC foi corrigido (js/mes_plataforma_azure.js)
+ERROS_CONHECIDOS = ()  # nenhum: o erro herdado de ACV/LCC foi corrigido (js/mes_plataforma_azure.js; na versão JSON, adaptador do servidor)
 SEL_ULTIMO = "(s=>{s.selectedIndex=s.options.length-1;s.dispatchEvent(new Event('change'))})(document.getElementById('%s'))"
 
 
@@ -68,7 +68,7 @@ async def main():
         await page.goto(BASE + '/', wait_until='load')
         info = await page.wait_for_selector('#mesPlataformaInfo', timeout=10000)
         ok('Banco:' in (await info.inner_text()), 'tela de login mostra servidor/banco ativos', await info.inner_text())
-        ok(await page.title() == 'MES LION 1.0 AZURE — SQL Server / Multiusuário' or 'AZURE' in await page.title(), 'título da plataforma', await page.title())
+        ok(await page.title() == 'MES LION 1.0 AZURE — SQL Server / Multiusuário' or 'AZURE' in await page.title() or 'MES LION 1.0 JSON' in await page.title(), 'título da plataforma', await page.title())
         await login(page, 'admin', 'meslion2026')
         ok(await page.is_visible('#nav'), 'login admin e menu carregado', '')
         ok(not await page.is_visible('#fatalErrorBanner'), 'sem erro fatal após login', erros)

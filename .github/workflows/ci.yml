@@ -4,6 +4,8 @@
 #           A/B de telas contra o contrato do servidor original e migração do PostgreSQL 16.
 #  - Windows: executável autocontido win-x64 (não exige .NET instalado) + testes com
 #             modo Portátil e SQL Server LocalDB.
+#  - Versão JSON (sem PostgreSQL): servidor PowerShell no Windows PowerShell 5.1 real, contrato HTTP,
+#             navegador, importação do PostgreSQL com psql.exe e pacote para outros usuários.
 #  - Publica os pacotes no release "build-mais-recente".
 # =====================================================================
 name: CI MES LION Azure
@@ -514,9 +516,120 @@ jobs:
             out/api/ab_resultado.json
             out/api/MES_LION_API_NESTJS_app.zip
 
+  # -------------------------------------------------------------------------------------------------
+  # MES LION 1.0 JSON: o MES PowerShell SEM PostgreSQL (dados em arquivos JSON), para PCs sem banco instalado.
+  # Testado no Windows PowerShell 5.1 real (o mesmo dos PCs corporativos) e com o PostgreSQL + psql.exe do runner.
+  # -------------------------------------------------------------------------------------------------
+  versao-json:
+    name: Versão JSON (sem PostgreSQL) — Windows PowerShell 5.1
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Montar o pacote (frontend original byte a byte + servidor JSON + dados de teste)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory out/front -Force | Out-Null
+          Copy-Item src/MesLion.Server/wwwroot/* out/front -Recurse
+          Remove-Item out/front/js/mes_plataforma_azure.js
+          Copy-Item tests/referencia_frontend_original/index.html out/front/index.html -Force
+          python versao_json/montar_pacote.py --frontend out/front --saida out/json/MES_LION_1_0_JSON --dados tests/dados_teste/MES_LION_DATA_TESTE.json --zip out/MES_LION_1_0_JSON_dados_de_teste.zip
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          pip install requests bcrypt playwright | Out-Null
+          python -m playwright install chromium | Out-Null
+
+      - name: Ambiente (Windows PowerShell 5.1 e .NET Framework)
+        shell: powershell
+        run: |
+          $PSVersionTable | Format-Table -AutoSize | Out-String | Write-Host
+          "Release do .NET Framework: " + (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full').Release
+          "Modo de linguagem: " + $ExecutionContext.SessionState.LanguageMode
+
+      - name: Contrato HTTP (servidor no Windows PowerShell 5.1)
+        shell: pwsh
+        run: |
+          [Console]::OutputEncoding = [Text.Encoding]::UTF8
+          $pkg = (Resolve-Path out/json/MES_LION_1_0_JSON).Path
+          $p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$pkg\server\MES_LION_SERVER_JSON.ps1",'-Port','8790','-NaoAbrirNavegador' -PassThru -RedirectStandardOutput out/json_servidor.log -RedirectStandardError out/json_servidor_err.log
+          for ($i = 0; $i -lt 120; $i++) { try { Invoke-RestMethod http://127.0.0.1:8790/healthz | Out-Null; break } catch { Start-Sleep 1 } }
+          Invoke-RestMethod http://127.0.0.1:8790/healthz | ConvertTo-Json -Compress
+          python tests/testes_api_json.py http://127.0.0.1:8790 tests/dados_teste/MES_LION_DATA_TESTE.json "$pkg\Dados" 2>&1 | Tee-Object -FilePath out/testes_api_json.log
+          $codigo = $LASTEXITCODE
+          Stop-Process -Id $p.Id -Force
+          Start-Sleep 1
+          Get-Content out/json_servidor.log -Tail 30
+          Get-Content out/json_servidor_err.log -ErrorAction SilentlyContinue
+          if ($codigo -eq 0) {
+            $env:MES_POWERSHELL = 'powershell'
+            python tests/teste_gerar_pacote_json.py $pkg 2>&1 | Tee-Object -FilePath out/gerar_pacote_json.log
+            $codigo = $LASTEXITCODE
+          }
+          exit $codigo
+
+      - name: Navegador (E2E) e primeira tela — servidor no Windows PowerShell 5.1
+        shell: pwsh
+        run: |
+          [Console]::OutputEncoding = [Text.Encoding]::UTF8
+          $codigo = 0
+          foreach ($t in @(@{ porta = 8791; script = 'tests/e2e_fluxos.py'; log = 'e2e_json' }, @{ porta = 8792; script = 'tests/primeira_tela.py'; log = 'primeira_tela_json' })) {
+            python versao_json/montar_pacote.py --frontend out/front --saida "out/json_$($t.porta)/MES_LION_1_0_JSON" --dados tests/dados_teste/MES_LION_DATA_TESTE.json | Out-Null
+            $pkg = (Resolve-Path "out/json_$($t.porta)/MES_LION_1_0_JSON").Path
+            $p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$pkg\server\MES_LION_SERVER_JSON.ps1",'-Port',"$($t.porta)",'-NaoAbrirNavegador' -PassThru -RedirectStandardOutput "out/$($t.log)_servidor.log" -RedirectStandardError "out/$($t.log)_servidor_err.log"
+            for ($i = 0; $i -lt 120; $i++) { try { Invoke-RestMethod "http://127.0.0.1:$($t.porta)/healthz" | Out-Null; break } catch { Start-Sleep 1 } }
+            python $t.script "http://127.0.0.1:$($t.porta)" 2>&1 | Tee-Object -FilePath "out/$($t.log).log"
+            if ($LASTEXITCODE -ne 0) { $codigo = 1; Get-Content "out/$($t.log)_servidor.log" -Tail 40 }
+            Stop-Process -Id $p.Id -Force
+          }
+          exit $codigo
+
+      - name: Importação do MES PostgreSQL (PostgreSQL do runner + psql.exe + Windows PowerShell 5.1)
+        shell: pwsh
+        env:
+          PGUSER: postgres
+          PGPASSWORD: root
+          MES_POWERSHELL: powershell
+        run: |
+          [Console]::OutputEncoding = [Text.Encoding]::UTF8
+          $svc = Get-Service -Name 'postgresql*' | Select-Object -First 1
+          Set-Service -InputObject $svc -StartupType Manual
+          Start-Service -InputObject $svc
+          & "$env:PGBIN\pg_isready.exe" -h localhost -p 5432
+          python tests/teste_migracao_json.py out/front tests/dados_teste/MES_LION_DATA_TESTE.json 2>&1 | Tee-Object -FilePath out/migracao_json.log
+          exit $LASTEXITCODE
+
+      - name: Diagnóstico — publicar logs no release "ci-diagnostico"
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory diag -Force | Out-Null
+          Copy-Item out/*.log diag/ -ErrorAction SilentlyContinue
+          Get-ChildItem out -Recurse -Filter 'servidor_*.log' -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName (Join-Path diag ($_.Directory.Parent.Parent.Name + '_' + $_.Name)) -ErrorAction SilentlyContinue }
+          "${{ github.sha }} ${{ job.status }}" | Out-File diag/execucao.txt
+          Compress-Archive -Path diag/* -DestinationPath diagnostico-json.zip -Force
+          gh release create ci-diagnostico --repo "$env:GITHUB_REPOSITORY" --title "Diagnóstico do CI" --notes "Logs da última execução do CI (não é um pacote para uso)." --prerelease --target "$env:GITHUB_SHA" 2>$null
+          for ($t = 1; $t -le 3; $t++) { gh release upload ci-diagnostico diagnostico-json.zip --repo "$env:GITHUB_REPOSITORY" --clobber; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 5 }
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resultados-json
+          path: |
+            out/*.log
+            out/MES_LION_1_0_JSON_dados_de_teste.zip
+
   publicar:
     name: Publicar release "build-mais-recente"
-    needs: [ linux, windows, api-nestjs ]
+    needs: [ linux, windows, api-nestjs, versao-json ]
     # Os pacotes do servidor .NET são publicados mesmo enquanto a API NestJS (fase 1) estiver em validação.
     if: ${{ always() && needs.linux.result == 'success' && needs.windows.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -528,11 +641,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           API_OK: ${{ needs.api-nestjs.result == 'success' }}
+          JSON_OK: ${{ needs.versao-json.result == 'success' }}
         run: |
           ls -R artefatos | head -50
           extras=()
           if [ "$API_OK" = "true" ] && [ -f artefatos/resultados-api/MES_LION_API_NESTJS_app.zip ]; then
             extras+=(artefatos/resultados-api/MES_LION_API_NESTJS_app.zip)
+          fi
+          if [ "$JSON_OK" = "true" ] && [ -f artefatos/resultados-json/MES_LION_1_0_JSON_dados_de_teste.zip ]; then
+            extras+=(artefatos/resultados-json/MES_LION_1_0_JSON_dados_de_teste.zip)
           fi
           gh release delete build-mais-recente --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
           gh release create build-mais-recente --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \

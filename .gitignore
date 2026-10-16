@@ -16,3 +16,6 @@ apps/api/pacote/
 apps/api/coverage/
 apps/api/src/generated/
 *.tsbuildinfo
+# Versão JSON (versao_json): dados gerados ao rodar o servidor a partir da pasta do repositório nunca vão para o Git
+versao_json/Dados/
+MES_LION_1_0_JSON_*.zip

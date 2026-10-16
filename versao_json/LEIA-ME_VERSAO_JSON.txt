@@ -1,0 +1,81 @@
+﻿MES LION 1.0 JSON — SEM POSTGRESQL
+Versão do MES LION (com Capacidade e Carga de Máquinas V1) que abre sem PostgreSQL instalado.
+
+O QUE É
+- O mesmo MES do pacote MES_LION_PGSQL_CAPACIDADE_CARGA_V1 (mesmas telas e regras), mas os dados ficam em
+  arquivos na pasta Dados em vez do banco PostgreSQL.
+- Não precisa instalar nada: só o Windows (o PowerShell já vem no Windows) e o navegador (Edge ou Chrome).
+- Não pede a senha do PostgreSQL.
+
+COMO ABRIR
+1. Extraia o .zip inteiro em uma pasta local (ex.: Documentos\MES_LION_1_0_JSON). Não abra de dentro do .zip.
+2. Dê dois cliques em INICIAR_MES.bat. Abre uma janela preta (o servidor) e o navegador em http://localhost:8765
+3. Entre com o seu usuário e senha do MES. Sem dados importados, o usuário inicial é admin / meslion2026
+   (troque a senha em Usuários / Segurança).
+4. Mantenha a janela preta aberta enquanto usa o MES. Para encerrar, feche a janela.
+
+TRAZER OS DADOS DO MES POSTGRESQL, COM O HISTÓRICO
+No computador onde o MES PostgreSQL está instalado:
+1. Feche o MES JSON, se estiver aberto (o MES PostgreSQL pode continuar aberto).
+2. Dê dois cliques em IMPORTAR_DADOS_DO_POSTGRESQL.bat e digite a senha do usuário postgres
+   (a mesma que o MES PostgreSQL pede ao abrir).
+3. Confira o resumo e confirme com S. São copiados para a pasta Dados:
+   - todos os dados do MES como estão hoje (cadastros, OPs, PCP, capacidades e histórico de capacidade, ACV/LCC...);
+   - os usuários, com as MESMAS senhas;
+   - o Histórico de Modificações completo;
+   - os documentos dos equipamentos (os arquivos são procurados sozinhos na pasta server\uploads do MES PostgreSQL;
+     se não forem achados, o programa pede para arrastar a pasta do MES PostgreSQL para a janela).
+   Nada é alterado no PostgreSQL. O que já havia na pasta Dados fica guardado em Dados\backups.
+4. Abra com INICIAR_MES.bat e confira os dados e o Histórico de Modificações.
+
+LEVAR PARA OS OUTROS USUÁRIOS
+1. Depois de importar, dê dois cliques em GERAR_PACOTE_PARA_OUTROS_USUARIOS.bat.
+2. É criado o arquivo MES_LION_1_0_JSON_data_hora.zip ao lado da pasta do MES, já com dados, usuários e histórico.
+3. Envie o .zip. Quem recebe extrai e abre INICIAR_MES.bat, com o próprio usuário e senha do MES.
+ATENÇÃO: cada computador passa a ter a SUA cópia dos dados; o que um usuário altera não aparece para os outros.
+Para todos trabalharem nos MESMOS dados ao mesmo tempo, use o modo rede (abaixo).
+
+MODO REDE (VÁRIOS USUÁRIOS NOS MESMOS DADOS)
+- Em um computador, abra com INICIAR_MES_REDE.bat. Os outros acessam pelo navegador em http://IP-DESSE-PC:8765
+  (o endereço aparece na janela do servidor).
+- Se o Windows perguntar sobre o Firewall, permita o acesso. Se a rede corporativa bloquear a porta 8765,
+  solicite a liberação à TI.
+- Não coloque a pasta do MES na rede para cada um abrir o próprio servidor: dois servidores gravando a mesma
+  pasta Dados apagariam as alterações um do outro. O MES JSON impede isso e mostra qual computador já está
+  com a pasta aberta.
+
+ONDE FICAM OS DADOS (pasta Dados)
+- MES_LION_DATA.json ............. todos os dados do MES
+- usuarios.json .................. usuários (senhas protegidas por hash, nunca em texto)
+- auditoria.jsonl ................ Histórico de Modificações
+- documentos_equipamentos.json ... documentos dos equipamentos (os arquivos ficam em Dados\arquivos)
+- app_storage.json ............... preferências gravadas pelo navegador
+- backups\ ....................... cópias de segurança (.zip)
+Não edite esses arquivos com o MES aberto.
+
+CÓPIAS DE SEGURANÇA
+- Automática: uma por dia, antes da primeira gravação do dia (ficam as 14 mais recentes).
+- Manual: menu Banco ▾ > Criar backup.
+- Antes de "Importar banco" e de "Restaurar dados iniciais" o MES também cria uma cópia.
+- Para voltar uma cópia: extraia o .zip de Dados\backups e use Banco ▾ > Importar banco com o .json extraído.
+Nesta versão o menu Banco ▾ (Criar backup, Exportar banco, Importar banco, Pasta de dados) funciona; no MES
+PostgreSQL esses botões davam erro.
+
+ESQUECEU A SENHA?
+- REDEFINIR_SENHA.bat: escolha o usuário e digite a nova senha (o usuário também é reativado).
+
+PROBLEMAS COMUNS
+- "não foi possível abrir a porta 8765": já existe um MES aberto (PostgreSQL ou JSON). Feche a outra janela do servidor.
+- "a pasta de dados não permite gravação": copie a pasta do MES para Documentos ou para a Área de Trabalho.
+- O Windows avisou que o arquivo veio da internet: clique em "Mais informações" > "Executar assim mesmo". Ou, antes de
+  extrair, clique com o botão direito no .zip > Propriedades > marque "Desbloquear".
+- Evite deixar a pasta do MES dentro do OneDrive (a sincronização pode atrasar as gravações).
+
+O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
+- index.html, style.css, js\ e assets\ são idênticos (byte a byte) aos do pacote PGSQL CAPACIDADE_CARGA_V1.
+- O servidor (server\MES_LION_SERVER_JSON.ps1) grava em arquivos e, ao entregar a página, inclui a correção do erro
+  herdado de ACV/LCC (coleções criadas ao carregar a página que se perdiam ao entrar), a mesma da versão AZURE.
+- Senhas novas usam PBKDF2 (o mesmo formato da versão AZURE); senhas trazidas do PostgreSQL são aceitas e convertidas
+  no primeiro login.
+- Não vêm no pacote os arquivos que só servem ao PostgreSQL: CRIAR_BANCO_POSTGRESQL.bat, database\ e .env.example.
+- Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
