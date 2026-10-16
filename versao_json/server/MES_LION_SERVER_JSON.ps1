@@ -931,7 +931,8 @@ function Ler-Multipart($req) {
 $AdaptadorJs = @'
 /* MES LION 1.0 JSON - adaptador incluído pelo servidor (server\MES_LION_SERVER_JSON.ps1) ao entregar o index.html.
    Os arquivos do frontend continuam idênticos aos do MES LION 1.0 PGSQL. Não altera regras de negócio, cálculos nem dados:
-   (1) corrige o erro herdado de ACV/LCC; (2) troca os textos que citavam o PostgreSQL. */
+   (1) corrige o erro herdado de ACV/LCC; (2) troca os textos que citavam o PostgreSQL; (3) mostra os botões de
+   Capacidade e Carga também no Cadastro de Recursos. */
 (function () {
   'use strict';
   /* CORREÇÃO ACV / LCC / ICV, APONTAMENTO DE TEMPOS E LOTES DE PI: os módulos V1.0.19 a V1.1.3 criam essas coleções
@@ -998,6 +999,25 @@ $AdaptadorJs = @'
   observarSubtitulo();
   infoLogin();
   window.MES_PLATAFORMA = { nome: NOME, banco: 'JSON' };
+})();
+(function () {
+  'use strict';
+  /* CORREÇÃO (Capacidade e Carga V1, js/mes_capacidade_carga_v1.js): os botões "Capacidades das máquinas" e
+     "Carga × capacidade" devem aparecer também no Cadastro de Recursos, mas o módulo só os mostra quando a variável
+     "current" já vale cad_recursos, e essa tela (V2.1) não a atualiza. Só inclui os botões; não muda dados nem cálculos. */
+  var renderAnterior = window.render;
+  if (typeof renderAnterior !== 'function') return;
+  window.render = function (k) {
+    var r = renderAnterior.apply(this, arguments);
+    try {
+      var c = document.getElementById('content');
+      if (k === 'cad_recursos' && typeof window.mesCapCadastro === 'function' && c && !c.querySelector('.mes-cap-toolbar')) {
+        c.insertAdjacentHTML('afterbegin', '<div class="toolbar mes-cap-toolbar"><button onclick="mesCapCadastro()">Capacidades das máquinas</button>' +
+          '<button onclick="mesCapRelatorio()">Carga × capacidade</button></div>');
+      }
+    } catch (e) { }
+    return r;
+  };
 })();
 '@
 function Entregar-Index([byte[]]$html) {

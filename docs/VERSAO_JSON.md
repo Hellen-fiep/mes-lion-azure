@@ -63,7 +63,8 @@ Diferenças em relação ao servidor PowerShell original (todas corrigem problem
 * Estado inválido/incompleto é recusado com 400 sem alterar o arquivo; `DELETE /api/storage/MES_LION_DATA` nunca apaga
   o estado; não permite ficar sem administrador ativo.
 
-O adaptador do frontend (correção de ACV/LCC e textos de plataforma) fica **dentro do servidor** e é incluído no
+O adaptador do frontend (correção de ACV/LCC, botões de Capacidade e Carga no Cadastro de Recursos — o módulo V1 só os
+mostrava quando a variável `current` já valia `cad_recursos` — e textos de plataforma) fica **dentro do servidor** e é incluído no
 `index.html` ao entregar a página — os arquivos do frontend continuam idênticos aos originais.
 
 ## Testes (CI: job `versao-json`, Windows PowerShell 5.1 real)
@@ -74,6 +75,7 @@ O adaptador do frontend (correção de ACV/LCC e textos de plataforma) fica **de
 | `tests/e2e_fluxos.py` | navegador real: login, cadastro com anexo, documentos, ACV/LCC, apontamento, usuários, backup, exportação, histórico, restaurar dados iniciais |
 | `tests/primeira_tela.py` | todas as opções do menu como primeira tela (e após F5) sem erro JavaScript |
 | `tests/teste_migracao_json.py` | PostgreSQL real (schema original) → `IMPORTAR_POSTGRESQL.ps1` → servidor JSON: senhas antigas, estado idêntico, histórico completo, documentos byte a byte |
+| `tests/teste_capacidade_json.py` | Capacidade e Carga V1 no navegador: botões no Cadastro de Recursos, capacidade e histórico gravados no servidor, relatório após F5 |
 | `tests/teste_gerar_pacote_json.py` | `.zip` para outros usuários com dados, sem backups/logs |
 | `tests/teste_redefinir_senha_json.py` | `REDEFINIR_SENHA.bat`: nova senha PBKDF2, reativação, senhas que não conferem |
 

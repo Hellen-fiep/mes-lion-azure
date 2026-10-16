@@ -74,7 +74,9 @@ PROBLEMAS COMUNS
 O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
 - index.html, style.css, js\ e assets\ são idênticos (byte a byte) aos do pacote PGSQL CAPACIDADE_CARGA_V1.
 - O servidor (server\MES_LION_SERVER_JSON.ps1) grava em arquivos e, ao entregar a página, inclui a correção do erro
-  herdado de ACV/LCC (coleções criadas ao carregar a página que se perdiam ao entrar), a mesma da versão AZURE.
+  herdado de ACV/LCC (coleções criadas ao carregar a página que se perdiam ao entrar), a mesma da versão AZURE, e faz
+  aparecer no Cadastro de Recursos os botões "Capacidades das máquinas" e "Carga × capacidade" (antes só apareciam
+  na tela PCP > Capacidade).
 - Senhas novas usam PBKDF2 (o mesmo formato da versão AZURE); senhas trazidas do PostgreSQL são aceitas e convertidas
   no primeiro login.
 - Não vêm no pacote os arquivos que só servem ao PostgreSQL: CRIAR_BANCO_POSTGRESQL.bat, database\ e .env.example.
