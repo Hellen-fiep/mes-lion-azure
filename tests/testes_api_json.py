@@ -10,6 +10,13 @@ Requisitos: pip install requests bcrypt
 import sys, os, json, gzip, base64, time, uuid, threading, copy, hashlib, socket, zipfile, glob
 import requests
 
+# nenhum pedido HTTP fica esperando para sempre (servidor travado = falha rápida e clara)
+_pedido_original = requests.Session.request
+def _pedido_com_prazo(self, method, url, **kw):
+    kw.setdefault('timeout', 180)
+    return _pedido_original(self, method, url, **kw)
+requests.Session.request = _pedido_com_prazo
+
 BASE = sys.argv[1].rstrip('/') if len(sys.argv) > 1 else 'http://127.0.0.1:8765'
 SEED = sys.argv[2] if len(sys.argv) > 2 else None
 DADOS = sys.argv[3] if len(sys.argv) > 3 else None

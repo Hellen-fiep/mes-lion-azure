@@ -50,31 +50,37 @@ Write-Host "Destino (versão JSON): $Dados"
 
 # ---------------------------------------------------------------- o MES JSON nao pode estar aberto nesta pasta
 $trava = Join-Path $Dados 'servidor_em_execucao.json'
+$travaAtiva = $false
+$travaComputador = ''
 if ([System.IO.File]::Exists($trava)) {
     try {
-        $t = [System.IO.File]::ReadAllText($trava, $Utf8) | ConvertFrom-Json
-        $ativo = $false
-        if ([string]$t.computador -eq [Environment]::MachineName) {
+        $t = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($trava, $Utf8))
+        $travaComputador = [string]$t.computador
+        if ($travaComputador -eq [Environment]::MachineName) {
             $p = Get-Process -Id ([int]$t.pid) -ErrorAction SilentlyContinue
-            $ativo = ($null -ne $p -and $p.ProcessName -match 'powershell|pwsh')
-            if ($ativo) { try { $ativo = ($p.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss') -eq [string]$t.processoIniciadoEm) } catch { $ativo = $false } }
+            if ($null -ne $p -and $p.ProcessName -match 'powershell|pwsh') {
+                $travaAtiva = ($p.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss') -eq [string]$t.processoIniciadoEm)
+            }
         } else {
             $quando = [DateTimeOffset]::MinValue
-            $ativo = [DateTimeOffset]::TryParse([string]$t.atualizadoEm, [ref]$quando) -and (([DateTimeOffset]::Now - $quando).TotalMinutes -lt 3)
+            $travaAtiva = [DateTimeOffset]::TryParse([string]$t.atualizadoEm, [ref]$quando) -and (([DateTimeOffset]::Now - $quando).TotalMinutes -lt 3)
         }
-        if ($ativo) { Falhar ('o MES (versão JSON) está aberto usando esta pasta (computador ' + $t.computador + '). Feche a janela do servidor do MES JSON e rode a importação de novo.') }
-    } catch [System.Management.Automation.ExitException] { throw } catch { }
+    } catch { $travaAtiva = $false }
 }
+if ($travaAtiva) { Falhar ('o MES (versão JSON) está aberto usando esta pasta (computador ' + $travaComputador + '). Feche a janela do servidor do MES JSON e rode a importação de novo.') }
 
 # ---------------------------------------------------------------- psql
 function Achar-Psql {
     foreach ($nome in 'psql.exe', 'psql') { $c = Get-Command $nome -ErrorAction SilentlyContinue; if ($c) { return $c.Source } }
-    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, 'C:\Program Files\PostgreSQL')) {
-        if ([string]::IsNullOrWhiteSpace($base)) { continue }
-        $pg = Join-Path $base 'PostgreSQL'
-        if (-not (Test-Path $pg)) { $pg = $base }
-        if (-not (Test-Path $pg)) { continue }
-        $xs = @(Get-ChildItem $pg -Filter psql.exe -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName -Descending)
+    $pastas = @()
+    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432, 'C:\Program Files', 'C:\')) {
+        if (-not [string]::IsNullOrWhiteSpace($base)) { $pastas += (Join-Path $base 'PostgreSQL') }
+    }
+    foreach ($pg in ($pastas | Select-Object -Unique)) {
+        if (-not (Test-Path -LiteralPath $pg)) { continue }
+        # prefere o psql da pasta bin do PostgreSQL (o pgAdmin também traz um) e a versão mais nova
+        $xs = @(Get-ChildItem -LiteralPath $pg -Filter psql.exe -Recurse -ErrorAction SilentlyContinue |
+                Sort-Object @{ Expression = { $_.FullName -match '\\bin\\psql\.exe$' }; Descending = $true }, @{ Expression = { $_.FullName }; Descending = $true })
         if ($xs.Count -gt 0) { return $xs[0].FullName }
     }
     return $null
@@ -84,9 +90,13 @@ if (-not $Psql) { Falhar 'psql.exe não encontrado. Rode esta importação no co
 Write-Host "psql: $Psql"
 
 if ([string]::IsNullOrEmpty($env:PGPASSWORD)) {
-    $sec = Read-Host "Senha do usuário $Usuario do PostgreSQL (a mesma pedida ao abrir o MES PostgreSQL; não será salva)" -AsSecureString
-    $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
-    try { $env:PGPASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+    $pergunta = "Senha do usuário $Usuario do PostgreSQL (a mesma pedida ao abrir o MES PostgreSQL; não será salva)"
+    if ([Console]::IsInputRedirected) { Write-Host ($pergunta + ': ') -NoNewline; $env:PGPASSWORD = [Console]::In.ReadLine() }
+    else {
+        $sec = Read-Host $pergunta -AsSecureString
+        $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+        try { $env:PGPASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
+    }
 }
 $env:PGCLIENTENCODING = 'UTF8'
 
@@ -235,8 +245,16 @@ function Ler-Bytes([string]$p) {
 }
 $estadoBytes = Ler-Bytes $arqEstado
 if ($estadoBytes.Length -lt 2 -or $estadoBytes[0] -ne 123 -or $estadoBytes[$estadoBytes.Length - 1] -ne 125) { Limpar-Temp; Falhar 'os dados do MES lidos do PostgreSQL não são um objeto JSON.' }
-$usuarios = @([System.IO.File]::ReadAllText($arqUsuarios, $Utf8) | ConvertFrom-Json)
-$docs = @([System.IO.File]::ReadAllText($arqDocs, $Utf8) | ConvertFrom-Json)
+# (no Windows PowerShell 5.1 o ConvertFrom-Json devolve a lista inteira como um objeto só: por isso o @() vem depois)
+function Ler-ListaJson([string]$caminho) {
+    $texto = [System.IO.File]::ReadAllText($caminho, $Utf8)
+    if ([string]::IsNullOrWhiteSpace($texto)) { return , @() }
+    $v = ConvertFrom-Json -InputObject $texto
+    if ($null -eq $v) { return , @() }
+    return , @($v)
+}
+$usuarios = Ler-ListaJson $arqUsuarios
+$docs = Ler-ListaJson $arqDocs
 $linhasHist = @()
 if ((New-Object System.IO.FileInfo($arqAuditoria)).Length -gt 0) { $linhasHist = @([System.IO.File]::ReadAllLines($arqAuditoria, $Utf8) | Where-Object { $_.Trim().Length -gt 0 }) }
 if ($linhasHist.Count -ne [int]$c.historico) { Limpar-Temp; Falhar ("histórico incompleto ({0} de {1} registros)." -f $linhasHist.Count, $c.historico) }

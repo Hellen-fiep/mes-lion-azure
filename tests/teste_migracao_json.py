@@ -14,6 +14,13 @@ Variáveis: PGHOST, PGPORT, PGUSER, PGPASSWORD; MES_POWERSHELL (padrão: powersh
 import os, sys, json, uuid, shutil, subprocess, tempfile, time, base64, socket, zipfile, glob
 import requests
 
+# nenhum pedido HTTP fica esperando para sempre (servidor travado = falha rápida e clara)
+_pedido_original = requests.Session.request
+def _pedido_com_prazo(self, method, url, **kw):
+    kw.setdefault('timeout', 180)
+    return _pedido_original(self, method, url, **kw)
+requests.Session.request = _pedido_com_prazo
+
 FRONT = os.path.abspath(sys.argv[1])
 DADOS_TESTE = os.path.abspath(sys.argv[2])
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

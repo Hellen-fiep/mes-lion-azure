@@ -23,7 +23,7 @@ Write-Host '=====================================================' -ForegroundCo
 $trava = Join-Path $Dados 'servidor_em_execucao.json'
 if ([System.IO.File]::Exists($trava)) {
     try {
-        $t = [System.IO.File]::ReadAllText($trava, $Utf8) | ConvertFrom-Json
+        $t = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText($trava, $Utf8))
         if ([string]$t.computador -eq [Environment]::MachineName) {
             $p = Get-Process -Id ([int]$t.pid) -ErrorAction SilentlyContinue
             $mesmo = $false
@@ -79,7 +79,7 @@ if ([System.IO.File]::Exists($Destino)) { [System.IO.File]::Delete($Destino) }
 [System.IO.File]::Move($tmp, $Destino)
 
 $usuarios = 0
-try { $usuarios = @([System.IO.File]::ReadAllText((Join-Path $Dados 'usuarios.json'), $Utf8) | ConvertFrom-Json).Count } catch { }
+try { $lu = ConvertFrom-Json -InputObject ([System.IO.File]::ReadAllText((Join-Path $Dados 'usuarios.json'), $Utf8)); if ($null -ne $lu) { $usuarios = @($lu).Count } } catch { }
 Write-Host ''
 Write-Host ('Pacote criado: ' + $Destino) -ForegroundColor Green
 Write-Host ('{0} arquivos, {1:N1} MB ({2:N1} MB compactado). Usuários incluídos: {3}.' -f $n, ($bytes / 1MB), ((New-Object System.IO.FileInfo($Destino)).Length / 1MB), $usuarios)

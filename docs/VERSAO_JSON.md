@@ -75,6 +75,7 @@ O adaptador do frontend (correção de ACV/LCC e textos de plataforma) fica **de
 | `tests/primeira_tela.py` | todas as opções do menu como primeira tela (e após F5) sem erro JavaScript |
 | `tests/teste_migracao_json.py` | PostgreSQL real (schema original) → `IMPORTAR_POSTGRESQL.ps1` → servidor JSON: senhas antigas, estado idêntico, histórico completo, documentos byte a byte |
 | `tests/teste_gerar_pacote_json.py` | `.zip` para outros usuários com dados, sem backups/logs |
+| `tests/teste_redefinir_senha_json.py` | `REDEFINIR_SENHA.bat`: nova senha PBKDF2, reativação, senhas que não conferem |
 
 Montar o pacote localmente:
 

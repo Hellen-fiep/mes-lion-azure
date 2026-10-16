@@ -10,6 +10,13 @@ Requisitos: pip install playwright requests  (e um Chromium: python -m playwrigh
 """
 import sys, os, re, json, time, asyncio, tempfile, uuid
 import requests
+
+# nenhum pedido HTTP fica esperando para sempre (servidor travado = falha rápida e clara)
+_pedido_original = requests.Session.request
+def _pedido_com_prazo(self, method, url, **kw):
+    kw.setdefault('timeout', 180)
+    return _pedido_original(self, method, url, **kw)
+requests.Session.request = _pedido_com_prazo
 from playwright.async_api import async_playwright
 
 BASE = sys.argv[1].rstrip('/')

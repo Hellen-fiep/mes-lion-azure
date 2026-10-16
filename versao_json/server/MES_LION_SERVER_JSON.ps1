@@ -22,7 +22,8 @@ param(
     [int]$Port = 8765,
     [string]$PastaDados = '',
     [switch]$NaoAbrirNavegador,
-    [switch]$RedefinirSenha
+    [switch]$RedefinirSenha,
+    [switch]$Detalhado
 )
 
 $ErrorActionPreference = 'Stop'
@@ -475,7 +476,7 @@ function Bf-CifrarPS([uint32[]]$P, [uint32[]]$S, [long]$l, [long]$r) {
 }
 $B64Bcrypt = './ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
 function Bcrypt-B64Decodificar([string]$s, [int]$max) {
-    $saida = New-Object System.Collections.Generic.List[byte]
+    $saida = New-Object 'System.Collections.Generic.List[byte]'
     $off = 0
     while ($off -lt $s.Length - 1 -and $saida.Count -lt $max) {
         $c1 = $B64Bcrypt.IndexOf($s[$off]); $c2 = $B64Bcrypt.IndexOf($s[$off + 1]); $off += 2
@@ -601,7 +602,7 @@ function Ler-Kv {
     return , $d
 }
 function Kv-Json($d) {
-    $partes = New-Object System.Collections.Generic.List[string]
+    $partes = New-Object 'System.Collections.Generic.List[string]'
     foreach ($k in $d.Keys) { $partes.Add((Json-Str $k) + ':' + (Json-Str $d[$k])) }
     return '{' + [string]::Join(',', $partes) + '}'
 }
@@ -651,7 +652,7 @@ function Ler-UltimasLinhas([string]$arquivo, [int]$maximo) {
             $partes = $Utf8.GetString($buf, 0, $lidos).Split([char]10)
             $inicio = 0
             if ($ini -gt 0) { $inicio = 1 }   # a primeira linha pode estar cortada
-            $linhas = New-Object System.Collections.Generic.List[string]
+            $linhas = New-Object 'System.Collections.Generic.List[string]'
             for ($x = $inicio; $x -lt $partes.Length; $x++) { $t = $partes[$x].Trim(); if ($t.Length -gt 0) { $linhas.Add($t) } }
             if ($linhas.Count -ge $maximo -or $ini -eq 0) {
                 if ($linhas.Count -gt $maximo) { $linhas = $linhas.GetRange($linhas.Count - $maximo, $maximo) }
@@ -663,12 +664,12 @@ function Ler-UltimasLinhas([string]$arquivo, [int]$maximo) {
 }
 function Auditoria-Json([int]$maximo = 500) {
     $linhas = Ler-UltimasLinhas $ArqAuditoria $maximo
-    $validas = New-Object System.Collections.Generic.List[string]
+    $validas = New-Object 'System.Collections.Generic.List[string]'
     for ($x = $linhas.Length - 1; $x -ge 0; $x--) { $t = $linhas[$x]; if ($t.StartsWith('{') -and $t.EndsWith('}')) { $validas.Add($t) } }
     $texto = '[' + [string]::Join(',', $validas) + ']'
     try { [void](Json-Ler $texto); return $texto } catch { }
     # alguma linha corrompida (ex.: desligamento no meio da gravacao): devolve so as validas
-    $ok = New-Object System.Collections.Generic.List[string]
+    $ok = New-Object 'System.Collections.Generic.List[string]'
     foreach ($t in $validas) { try { [void](Json-Ler $t); $ok.Add($t) } catch { } }
     return '[' + [string]::Join(',', $ok) + ']'
 }
@@ -742,7 +743,7 @@ function Ler-ArquivoBanco([byte[]]$conteudo) {
         try {
             $raiz = $doc.RootElement
             if ($raiz.ValueKind.ToString() -ne 'Object') { throw (New-Object System.FormatException 'O banco do MES deve ser um objeto JSON.') }
-            $chaves = New-Object System.Collections.Generic.List[string]
+            $chaves = New-Object 'System.Collections.Generic.List[string]'
             foreach ($p in $raiz.EnumerateObject()) { $chaves.Add($p.Name) }
             $fmt = New-Object System.Text.Json.JsonElement
             $ehEnv = $raiz.TryGetProperty('format', [ref]$fmt) -and $fmt.ValueKind.ToString() -eq 'String' -and $fmt.GetString() -eq 'MES_LION_JSON_DATABASE'
@@ -834,7 +835,8 @@ function Ler-Requisicao($cliente) {
 }
 
 function Responder($st, [int]$codigo, $partes, [string]$tipo = $TipoJson, $extras = $null) {
-    $lista = New-Object System.Collections.Generic.List[byte[]]
+    $script:UltimaResposta = $codigo
+    $lista = New-Object 'System.Collections.Generic.List[byte[]]'
     if ($partes -is [byte[]]) { $lista.Add($partes) } else { foreach ($p in $partes) { if ($null -ne $p) { $lista.Add([byte[]]$p) } } }
     $total = 0L
     foreach ($p in $lista) { $total += $p.Length }
@@ -1248,7 +1250,7 @@ function Rotear($req) {
             if ($codigo.Length -gt 100) { R-Erro $st 400 'Código de equipamento muito longo (máx. 100).'; return }
             $m = Ler-Multipart $req
             if (-not $m.ContainsKey('file') -or -not ($m['file'] -is [hashtable])) { R-Erro $st 400 'Arquivo obrigatório'; return }
-            $nomeArq = [System.IO.Path]::GetFileName(([string]$m['file'].filename).Replace('\', '/').Split('/')[-1])
+            $nomeArq = Nome-Seguro (([string]$m['file'].filename).Replace('\', '/').Split('/')[-1]) 'documento'
             $ext = [System.IO.Path]::GetExtension($nomeArq).ToLowerInvariant()
             if (@('.pdf', '.xlsx', '.xls') -notcontains $ext) { R-Erro $st 400 'Somente PDF/XLS/XLSX'; return }
             $armazenado = [guid]::NewGuid().ToString() + $ext
@@ -1382,9 +1384,10 @@ function Rotear($req) {
     }
     if ($caminho.StartsWith('/api/backups/') -and $metodo -eq 'GET') {
         if ($u.role -ne 'ADMIN') { R-Erro $st 403 'Acesso administrativo necessário'; return }
-        $nome = [System.IO.Path]::GetFileName([Uri]::UnescapeDataString($caminho.Substring(13)))
+        $nome = [Uri]::UnescapeDataString($caminho.Substring(13))
+        if ($nome -notmatch '^MES_LION_BACKUP_[\w\-]+\.zip$') { R-Texto $st 404 'Não encontrado'; return }
         $fp = Join-Path $PastaBackups $nome
-        if (-not $nome.StartsWith('MES_LION_BACKUP_') -or -not $nome.EndsWith('.zip') -or -not [System.IO.File]::Exists($fp)) { R-Texto $st 404 'Não encontrado'; return }
+        if (-not [System.IO.File]::Exists($fp)) { R-Texto $st 404 'Não encontrado'; return }
         R-Arquivo $st ([System.IO.File]::ReadAllBytes($fp)) 'application/zip' $nome 'attachment'
         return
     }
@@ -1421,12 +1424,17 @@ function Id-PassaporteSeguro([string]$id) {
 
 function Atender($cliente) {
     $st = $null
+    $req = $null
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $script:UltimaResposta = 0
     try {
         $req = Ler-Requisicao $cliente
-        if ($null -eq $req) { return }
+        if ($null -eq $req) { if ($Detalhado) { Escrever-Log ('conexão encerrada sem pedido (' + $sw.ElapsedMilliseconds + ' ms)') 'DarkGray' }; return }
         $st = $req.stream
+        if ($Detalhado) { Escrever-Log ('<- ' + $req.method + ' ' + $req.target + ' (' + $req.body.Length + ' bytes, lido em ' + $sw.ElapsedMilliseconds + ' ms)') 'DarkGray' }
         if ($req.erro) { R-Erro $st $req.erro $req.mensagem; return }
         Rotear $req
+        if ($Detalhado) { Escrever-Log ('-> ' + $script:UltimaResposta + ' ' + $req.method + ' ' + $req.path + ' (' + $sw.ElapsedMilliseconds + ' ms)') 'DarkGray' }
     } catch {
         $ex = $_.Exception
         $msg = $ex.Message
@@ -1450,6 +1458,8 @@ function Atender($cliente) {
 # Inicializacao
 # =====================================================================================================
 function Ler-SenhaOculta([string]$pergunta) {
+    # entrada redirecionada (automacao/testes): le a linha diretamente
+    if ([Console]::IsInputRedirected) { Write-Host ($pergunta + ': ') -NoNewline; return [Console]::In.ReadLine() }
     $sec = Read-Host $pergunta -AsSecureString
     $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
     try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
@@ -1511,7 +1521,7 @@ function Conferir-Frontend {
     $idx = Join-Path $Root 'index.html'
     if (-not [System.IO.File]::Exists($idx)) { throw ('index.html não encontrado em ' + $Root + '. Extraia o pacote completo do MES (todas as pastas).') }
     $html = [System.IO.File]::ReadAllText($idx, $Utf8)
-    $faltando = New-Object System.Collections.Generic.List[string]
+    $faltando = New-Object 'System.Collections.Generic.List[string]'
     foreach ($m in [regex]::Matches($html, '(?:src|href)="([^"?#]+)')) {
         $rel = $m.Groups[1].Value
         if ($rel -match '^(https?:|data:|//|#|mailto:)') { continue }
@@ -1562,7 +1572,8 @@ if ($RedefinirSenha) {
     Write-Host ''
     foreach ($x in $lista) { Write-Host ('  {0,-20} {1,-35} {2,-8} {3}' -f $x['username'], $x['full_name'], $x['role'], $(if (Usuario-Ativo $x) { 'ativo' } else { 'INATIVO' })) }
     Write-Host ''
-    $nome = (Read-Host 'Usuário (login) que terá a senha redefinida').Trim()
+    if ([Console]::IsInputRedirected) { Write-Host 'Usuário (login) que terá a senha redefinida: ' -NoNewline; $nome = ([string][Console]::In.ReadLine()).Trim() }
+    else { $nome = ([string](Read-Host 'Usuário (login) que terá a senha redefinida')).Trim() }
     $alvo = $null
     foreach ($x in $lista) { if ([string]::Equals([string]$x['username'], $nome, [StringComparison]::Ordinal)) { $alvo = $x } }
     if (-not $alvo) { Write-Host "Usuário '$nome' não encontrado." -ForegroundColor Red; exit 1 }
@@ -1682,6 +1693,7 @@ try {
                     $c.SendTimeout = 600000
                     $c.NoDelay = $true
                     [void]$pendentes.Add(@{ c = $c; t = [DateTime]::UtcNow })
+                    if ($Detalhado) { Escrever-Log ('conexão aceita de ' + $c.Client.RemoteEndPoint + ' (aguardando: ' + $pendentes.Count + ')') 'DarkGray' }
                 }
                 continue
             }
