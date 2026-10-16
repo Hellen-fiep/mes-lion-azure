@@ -545,12 +545,21 @@ jobs:
           pip install requests bcrypt playwright | Out-Null
           python -m playwright install chromium | Out-Null
 
-      - name: Ambiente (Windows PowerShell 5.1 e .NET Framework)
+      - name: Ambiente (Windows PowerShell 5.1 e .NET Framework) e sintaxe dos scripts no parser 5.1
         shell: powershell
         run: |
           $PSVersionTable | Format-Table -AutoSize | Out-String | Write-Host
           "Release do .NET Framework: " + (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full').Release
           "Modo de linguagem: " + $ExecutionContext.SessionState.LanguageMode
+          # sintaxe de todos os scripts no próprio parser do Windows PowerShell 5.1 (falha rápida e clara)
+          $erros = 0
+          foreach ($f in Get-ChildItem out/json/MES_LION_1_0_JSON/server/*.ps1) {
+            $e = $null; $t = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$t, [ref]$e)
+            foreach ($x in @($e)) { if ($x) { $erros++; Write-Host ("{0}:{1}:{2} {3}" -f $f.Name, $x.Extent.StartLineNumber, $x.Extent.StartColumnNumber, $x.Message) } }
+            if (-not $e) { Write-Host "sintaxe ok (PowerShell 5.1): $($f.Name)" }
+          }
+          if ($erros -gt 0) { exit 1 }
 
       - name: Contrato HTTP (servidor no Windows PowerShell 5.1)
         shell: pwsh

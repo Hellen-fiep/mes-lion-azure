@@ -432,7 +432,7 @@ function Bcrypt-Preparar {
                         )), $fim))
         }
         $vars = [System.Linq.Expressions.ParameterExpression[]]@($l, $r, $xl, $xr, $i, $j)
-        $lam = $E::Lambda([Action[uint32[], uint32[], uint32[], uint32[]]], $E::Block($vars, [System.Linq.Expressions.Expression[]]$corpo.ToArray()), [System.Linq.Expressions.ParameterExpression[]]@($pP, $pS, $pK, $pZ))
+        $lam = $E::Lambda($E::GetActionType([Type[]]@($tUA, $tUA, $tUA, $tUA)), $E::Block($vars, [System.Linq.Expressions.Expression[]]$corpo.ToArray()), [System.Linq.Expressions.ParameterExpression[]]@($pP, $pS, $pK, $pZ))
         # Cifrar(P, S, D[6]): cifra os 3 blocos de D (texto "OrpheanBeholderScryDoubt")
         $c2 = New-Object 'System.Collections.Generic.List[System.Linq.Expressions.Expression]'
         foreach ($b in 0, 2, 4) {
@@ -442,7 +442,7 @@ function Bcrypt-Preparar {
             $c2.Add($E::Assign($E::ArrayAccess($pD, [System.Linq.Expressions.Expression[]]@($E::Constant($b))), $l))
             $c2.Add($E::Assign($E::ArrayAccess($pD, [System.Linq.Expressions.Expression[]]@($E::Constant($b + 1))), $r))
         }
-        $lam2 = $E::Lambda([Action[uint32[], uint32[], uint32[]]], $E::Block($vars, [System.Linq.Expressions.Expression[]]$c2.ToArray()), [System.Linq.Expressions.ParameterExpression[]]@($pP, $pS, $pD))
+        $lam2 = $E::Lambda($E::GetActionType([Type[]]@($tUA, $tUA, $tUA)), $E::Block($vars, [System.Linq.Expressions.Expression[]]$c2.ToArray()), [System.Linq.Expressions.ParameterExpression[]]@($pP, $pS, $pD))
         $script:Bcrypt = @{ P = $P0; S = $S0; Expandir = $lam.Compile(); Cifrar = $lam2.Compile(); Compilado = $true }
     } catch {
         Escrever-Log ('bcrypt: compilação indisponível, usando a versão em PowerShell (mais lenta): ' + $_.Exception.Message) 'Yellow' -Arquivo
@@ -836,8 +836,8 @@ function Ler-Requisicao($cliente) {
 
 function Responder($st, [int]$codigo, $partes, [string]$tipo = $TipoJson, $extras = $null) {
     $script:UltimaResposta = $codigo
-    $lista = New-Object 'System.Collections.Generic.List[byte[]]'
-    if ($partes -is [byte[]]) { $lista.Add($partes) } else { foreach ($p in $partes) { if ($null -ne $p) { $lista.Add([byte[]]$p) } } }
+    $lista = New-Object System.Collections.ArrayList
+    if ($partes -is [byte[]]) { [void]$lista.Add($partes) } else { foreach ($p in $partes) { if ($null -ne $p) { [void]$lista.Add([byte[]]$p) } } }
     $total = 0L
     foreach ($p in $lista) { $total += $p.Length }
     $motivo = $Motivos[$codigo]
