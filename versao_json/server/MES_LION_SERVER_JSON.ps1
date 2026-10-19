@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $VersaoMes = 'MES LION 1.0 JSON'
-$VersaoServidor = '1.0.0 (2026-10-16)'
+$VersaoServidor = '1.0.1 (2026-10-19)'
 $EhPS7 = $PSVersionTable.PSVersion.Major -ge 6
 $EhWindows = ($env:OS -eq 'Windows_NT')
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -926,104 +926,21 @@ function Ler-Multipart($req) {
 }
 
 # =====================================================================================================
-# Adaptador do frontend (incluido no index.html ao entregar a pagina; os arquivos do frontend nao mudam)
+# Adaptador do frontend: server\adaptador_frontend.js, incluido no fim do index.html ao entregar a pagina (os arquivos
+# do frontend nao mudam). Lido na inicializacao; a pasta server nunca e entregue pelo servidor.
 # =====================================================================================================
-$AdaptadorJs = @'
-/* MES LION 1.0 JSON - adaptador incluído pelo servidor (server\MES_LION_SERVER_JSON.ps1) ao entregar o index.html.
-   Os arquivos do frontend continuam idênticos aos do MES LION 1.0 PGSQL. Não altera regras de negócio, cálculos nem dados:
-   (1) corrige o erro herdado de ACV/LCC; (2) troca os textos que citavam o PostgreSQL; (3) mostra os botões de
-   Capacidade e Carga também no Cadastro de Recursos. */
-(function () {
-  'use strict';
-  /* CORREÇÃO ACV / LCC / ICV, APONTAMENTO DE TEMPOS E LOTES DE PI: os módulos V1.0.19 a V1.1.3 criam essas coleções
-     vazias ao carregar a página; no modo servidor o estado vindo do servidor substitui "data" logo depois e elas deixam
-     de existir quando ainda não estão salvas (erro ao abrir ACV e LCC, ao salvar ICV e ao iniciar apontamento).
-     Recria apenas as coleções AUSENTES, vazias. Não cria, altera nem remove registros. */
-  var COLECOES = ['acv_estudos', 'acv_cenarios', 'acv_resultados', 'acv_fatores', 'lcc_estudos', 'lcc_cenarios', 'lcc_resultados',
-    'acv_icv_salvos', 'apontamento_tempos', 'op_pi_consumos', 'pi_lotes'];
-  function garantirColecoes() {
-    try {
-      if (typeof data !== 'object' || data === null) return;
-      for (var i = 0; i < COLECOES.length; i++) { var k = COLECOES[i]; data[k] = data[k] || []; }
-    } catch (e) { if (window.console) console.warn('MES LION: correção de coleções', e); }
-  }
-  window.mesGarantirColecoes = garantirColecoes;
-  garantirColecoes();
-  var bootAnterior = window.boot;
-  if (typeof bootAnterior === 'function') {
-    window.boot = function () { garantirColecoes(); return bootAnterior.apply(this, arguments); };
-  }
-  var renderAnterior = window.render;
-  if (typeof renderAnterior === 'function') {
-    window.render = function () { garantirColecoes(); return renderAnterior.apply(this, arguments); };
-  }
-})();
-(function () {
-  'use strict';
-  var NOME = 'MES LION 1.0 JSON';
-  function el(id) { return document.getElementById(id); }
-  function texto(t) {
-    if (!t) return t;
-    return String(t)
-      .replace(/MES LION 1\.0 PGSQL/g, NOME)
-      .replace(/Usuários PostgreSQL/g, 'Usuários do MES')
-      .replace(/ — PostgreSQL \/ Multiusuário/g, ' — sem PostgreSQL');
-  }
-  function ajustarTitulos() {
-    try {
-      var novo = texto(document.title);
-      if (/MES LION V2\.2\.1/.test(novo)) novo = NOME + ' — sem PostgreSQL';
-      if (novo !== document.title) document.title = novo;
-      var sub = el('subtitle');
-      if (sub) { var s = texto(sub.textContent); if (s !== sub.textContent) sub.textContent = s; }
-    } catch (e) { }
-  }
-  function observarSubtitulo() {
-    var sub = el('subtitle');
-    if (!sub || !window.MutationObserver) return;
-    new MutationObserver(function () {
-      var s = texto(sub.textContent);
-      if (s !== sub.textContent) sub.textContent = s;
-    }).observe(sub, { childList: true, characterData: true, subtree: true });
-  }
-  function infoLogin() {
-    var card = document.querySelector('#login .login-card');
-    if (!card || el('mesPlataformaInfo')) return;
-    var p = document.createElement('small');
-    p.id = 'mesPlataformaInfo';
-    p.style.cssText = 'display:block;margin-top:6px;opacity:.75;font-size:11px;line-height:1.4';
-    p.textContent = 'Servidor: PowerShell · Banco: arquivos JSON na pasta Dados (sem PostgreSQL)';
-    card.appendChild(p);
-  }
-  ajustarTitulos();
-  observarSubtitulo();
-  infoLogin();
-  window.MES_PLATAFORMA = { nome: NOME, banco: 'JSON' };
-})();
-(function () {
-  'use strict';
-  /* CORREÇÃO (Capacidade e Carga V1, js/mes_capacidade_carga_v1.js): os botões "Capacidades das máquinas" e
-     "Carga × capacidade" devem aparecer também no Cadastro de Recursos, mas o módulo só os mostra quando a variável
-     "current" já vale cad_recursos, e essa tela (V2.1) não a atualiza. Só inclui os botões; não muda dados nem cálculos. */
-  var renderAnterior = window.render;
-  if (typeof renderAnterior !== 'function') return;
-  window.render = function (k) {
-    var r = renderAnterior.apply(this, arguments);
-    try {
-      var c = document.getElementById('content');
-      if (k === 'cad_recursos' && typeof window.mesCapCadastro === 'function' && c && !c.querySelector('.mes-cap-toolbar')) {
-        c.insertAdjacentHTML('afterbegin', '<div class="toolbar mes-cap-toolbar"><button onclick="mesCapCadastro()">Capacidades das máquinas</button>' +
-          '<button onclick="mesCapRelatorio()">Carga × capacidade</button></div>');
-      }
-    } catch (e) { }
-    return r;
-  };
-})();
-'@
+$ArqAdaptador = Join-Path $PSScriptRoot 'adaptador_frontend.js'
+$script:AdaptadorJs = ''
+function Carregar-Adaptador {
+    if (-not [System.IO.File]::Exists($ArqAdaptador)) { throw ('arquivo server\adaptador_frontend.js não encontrado em ' + $PSScriptRoot + '. Extraia novamente o pacote completo do MES (todas as pastas).') }
+    $js = $Utf8.GetString((Sem-Bom ([System.IO.File]::ReadAllBytes($ArqAdaptador))))
+    # o texto vai dentro de <script>...</script>: um "</script" no meio encerraria o bloco antes da hora
+    $script:AdaptadorJs = [regex]::Replace($js, '</(script)', '<\/$1', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+}
 function Entregar-Index([byte[]]$html) {
     $t = $Utf8.GetString((Sem-Bom $html))
     $t = $t.Replace('<title>MES LION 1.0 PGSQL</title>', '<title>MES LION 1.0 JSON</title>')
-    $tag = '<script id="mes-adaptador-json">' + $AdaptadorJs + '</script>'
+    $tag = '<script id="mes-adaptador-json">' + $script:AdaptadorJs + '</script>'
     $i = $t.LastIndexOf('</body>', [StringComparison]::OrdinalIgnoreCase)
     if ($i -ge 0) { $t = $t.Substring(0, $i) + $tag + $t.Substring($i) } else { $t = $t + $tag }
     return , $Utf8.GetBytes($t)
@@ -1648,6 +1565,7 @@ try {
     Converter-EnvelopeSeNecessario
     $adminCriado = Garantir-Administrador
     Conferir-Frontend
+    Carregar-Adaptador
 } catch {
     Write-Host ''
     Write-Host ('ERRO ao preparar os dados: ' + $_.Exception.Message) -ForegroundColor Red

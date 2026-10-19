@@ -560,6 +560,10 @@ jobs:
             if (-not $e) { Write-Host "sintaxe ok (PowerShell 5.1): $($f.Name)" }
           }
           if ($erros -gt 0) { exit 1 }
+          # adaptador do frontend (incluído pelo servidor no index.html)
+          node --check out/json/MES_LION_1_0_JSON/server/adaptador_frontend.js
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Write-Host 'sintaxe ok (JavaScript): adaptador_frontend.js'
 
       - name: Contrato HTTP (servidor no Windows PowerShell 5.1)
         shell: pwsh
@@ -585,14 +589,14 @@ jobs:
           }
           exit $codigo
 
-      - name: Navegador (E2E, primeira tela, Capacidade e Carga) — servidor no Windows PowerShell 5.1
+      - name: Navegador (E2E, primeira tela, Capacidade e Carga, Calendário de Produção) — servidor no Windows PowerShell 5.1
         shell: pwsh
         timeout-minutes: 30
         run: |
           [Console]::OutputEncoding = [Text.Encoding]::UTF8
           $codigo = 0
           foreach ($t in @(@{ porta = 8791; script = 'tests/e2e_fluxos.py'; log = 'e2e_json' }, @{ porta = 8792; script = 'tests/primeira_tela.py'; log = 'primeira_tela_json' },
-                           @{ porta = 8793; script = 'tests/teste_capacidade_json.py'; log = 'capacidade_json' })) {
+                           @{ porta = 8793; script = 'tests/teste_capacidade_json.py'; log = 'capacidade_json' }, @{ porta = 8794; script = 'tests/teste_calendario_json.py'; log = 'calendario_json' })) {
             python versao_json/montar_pacote.py --frontend out/front --saida "out/json_$($t.porta)/MES_LION_1_0_JSON" --dados tests/dados_teste/MES_LION_DATA_TESTE.json | Out-Null
             $pkg = (Resolve-Path "out/json_$($t.porta)/MES_LION_1_0_JSON").Path
             $p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$pkg\server\MES_LION_SERVER_JSON.ps1",'-Port',"$($t.porta)",'-NaoAbrirNavegador','-Detalhado' -PassThru -RedirectStandardOutput "out/$($t.log)_servidor.log" -RedirectStandardError "out/$($t.log)_servidor_err.log"

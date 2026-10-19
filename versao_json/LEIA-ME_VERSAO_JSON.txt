@@ -14,6 +14,14 @@ COMO ABRIR
    (troque a senha em Usuários / Segurança).
 4. Mantenha a janela preta aberta enquanto usa o MES. Para encerrar, feche a janela.
 
+ATUALIZAR UMA INSTALAÇÃO QUE JÁ ESTÁ EM USO (SEM PERDER OS DADOS)
+1. Feche a janela do servidor do MES.
+2. Copie a pasta server deste pacote por cima da pasta server da instalação atual (substitua os arquivos).
+   NÃO copie a pasta Dados: é nela que estão os seus dados, usuários e histórico. Não extraia o .zip inteiro
+   por cima da pasta atual.
+3. Abra de novo com INICIAR_MES.bat. No modo rede basta atualizar o computador que abre o servidor; nos outros,
+   é só recarregar a página no navegador (F5).
+
 TRAZER OS DADOS DO MES POSTGRESQL, COM O HISTÓRICO
 No computador onde o MES PostgreSQL está instalado:
 1. Feche o MES JSON, se estiver aberto (o MES PostgreSQL pode continuar aberto).
@@ -44,6 +52,22 @@ MODO REDE (VÁRIOS USUÁRIOS NOS MESMOS DADOS)
   pasta Dados apagariam as alterações um do outro. O MES JSON impede isso e mostra qual computador já está
   com a pasta aberta.
 
+CALENDÁRIO DE PRODUÇÃO (PCP) — DIAS DISPONÍVEIS
+- Calendário de trabalho: segunda a sexta, 08:00–12:00 e 13:00–17:00. Sábados, domingos e feriados nacionais
+  ficam indisponíveis (faixa vermelha INDISPONIVEL no dia).
+- "Editar dia" (em cada dia do Calendário): Padrão, Liberar expediente (ex.: sábado com hora extra) ou Bloquear dia
+  (ex.: manutenção). Vale para a linha escolhida no filtro "Linha de Produção" (em "Todas", para todas as linhas).
+- "Sugerir programação por data inicial" (Calendário) e "Projetar sequência pelas datas já informadas" (Plano de
+  Produção) só programam em dias e horários de trabalho: pulam noites, sábados, domingos, feriados e dias
+  bloqueados, e respeitam as indisponibilidades de cada equipamento (PCP > Capacidade). Uma operação longa que
+  começa na sexta continua na segunda, e no Calendário aparece só nos dias em que é trabalhada.
+- "Validar conflitos" também aponta as operações que caem em dia indisponível.
+- "Recalcular programação" (PCP > Programação) abre a mesma "Sugestão de programação" do Calendário.
+- Programação feita antes desta atualização: as operações programadas com "Sugerir programação" passam a aparecer
+  só nos dias de trabalho. As programadas com "Projetar sequência" na versão anterior (tempo corrido, inclusive
+  sábados e domingos) aparecem em "Validar conflitos"; para refazê-las, use de novo "Projetar sequência pelas datas
+  já informadas", ou "Limpar datas" e depois "Sugerir programação por data inicial".
+
 ONDE FICAM OS DADOS (pasta Dados)
 - MES_LION_DATA.json ............. todos os dados do MES
 - usuarios.json .................. usuários (senhas protegidas por hash, nunca em texto)
@@ -73,11 +97,17 @@ PROBLEMAS COMUNS
 
 O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
 - index.html, style.css, js\ e assets\ são idênticos (byte a byte) aos do pacote PGSQL CAPACIDADE_CARGA_V1.
-- O servidor (server\MES_LION_SERVER_JSON.ps1) grava em arquivos e, ao entregar a página, inclui a correção do erro
-  herdado de ACV/LCC (coleções criadas ao carregar a página que se perdiam ao entrar), a mesma da versão AZURE, e faz
-  aparecer no Cadastro de Recursos os botões "Capacidades das máquinas" e "Carga × capacidade" (antes só apareciam
-  na tela PCP > Capacidade).
+- O servidor (server\MES_LION_SERVER_JSON.ps1) grava em arquivos e, ao entregar a página, inclui as correções do
+  arquivo server\adaptador_frontend.js: o erro herdado de ACV/LCC (coleções criadas ao carregar a página que se
+  perdiam ao entrar), a mesma da versão AZURE; os botões "Capacidades das máquinas" e "Carga × capacidade" também
+  no Cadastro de Recursos (antes só apareciam na tela PCP > Capacidade); o botão "Editar dia" do Calendário, que não
+  abria; e a programação automática nos dias disponíveis (veja CALENDÁRIO DE PRODUÇÃO).
 - Senhas novas usam PBKDF2 (o mesmo formato da versão AZURE); senhas trazidas do PostgreSQL são aceitas e convertidas
   no primeiro login.
 - Não vêm no pacote os arquivos que só servem ao PostgreSQL: CRIAR_BANCO_POSTGRESQL.bat, database\ e .env.example.
 - Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
+
+VERSÕES DO SERVIDOR JSON
+- 1.0.1 (19/10/2026): "Editar dia" volta a abrir; a programação automática não usa mais sábados, domingos,
+  feriados nem dias bloqueados (Sugerir programação, Projetar sequência, Validar conflitos e Recalcular programação).
+- 1.0.0 (16/10/2026): primeira versão sem PostgreSQL.

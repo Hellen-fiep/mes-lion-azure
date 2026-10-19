@@ -22,7 +22,8 @@ IMPORTAR_DADOS_DO_POSTGRESQL.bat      traz do PostgreSQL: dados, usuários (mesm
 GERAR_PACOTE_PARA_OUTROS_USUARIOS.bat .zip desta pasta já com os dados (sem backups/logs)
 REDEFINIR_SENHA.bat                   nova senha para um usuário (e reativa)
 LEIA-ME_VERSAO_JSON.txt               instruções para o usuário
-server/MES_LION_SERVER_JSON.ps1       servidor HTTP (TcpListener + Socket.Select), rotas, senhas, backups, adaptador do frontend
+server/MES_LION_SERVER_JSON.ps1       servidor HTTP (TcpListener + Socket.Select), rotas, senhas, backups
+server/adaptador_frontend.js          correções do frontend que o servidor inclui no index.html ao entregar a página
 server/IMPORTAR_POSTGRESQL.ps1        importador (somente leitura no PostgreSQL)
 server/GERAR_PACOTE.ps1               gerador do pacote para distribuir
 montar_pacote.py                      monta o pacote: frontend original conferido + server + .bat + LEIA-ME + Dados
@@ -63,9 +64,34 @@ Diferenças em relação ao servidor PowerShell original (todas corrigem problem
 * Estado inválido/incompleto é recusado com 400 sem alterar o arquivo; `DELETE /api/storage/MES_LION_DATA` nunca apaga
   o estado; não permite ficar sem administrador ativo.
 
-O adaptador do frontend (correção de ACV/LCC, botões de Capacidade e Carga no Cadastro de Recursos — o módulo V1 só os
-mostrava quando a variável `current` já valia `cad_recursos` — e textos de plataforma) fica **dentro do servidor** e é incluído no
-`index.html` ao entregar a página — os arquivos do frontend continuam idênticos aos originais.
+## Adaptador do frontend (`server/adaptador_frontend.js`)
+
+O servidor lê o arquivo ao iniciar e o inclui no fim do `index.html` ao entregar a página (depois de todos os scripts
+originais) — os arquivos do frontend continuam idênticos aos originais e a pasta `server/` nunca é servida. Correções:
+
+1. **ACV/LCC**: recria as coleções que os módulos V1.0.19–V1.1.3 criam ao carregar a página e que se perdiam quando o
+   estado do servidor substituía `data` (erro ao abrir ACV/LCC, salvar ICV, iniciar apontamento).
+2. **Textos de plataforma** (PostgreSQL → versão JSON).
+3. **Capacidade e Carga V1**: botões também no Cadastro de Recursos (o módulo só os mostrava com `current` = `cad_recursos`).
+4. **"Editar dia"** (`mesCalendarDecorate`): a decoração original removia e recriava a faixa INDISPONIVEL e o botão de
+   todos os dias a cada alteração da tela; o `MutationObserver` de `#content` a chamava de novo (≈1.900 alterações em
+   1,5 s) e o botão era trocado entre o apertar e o soltar do mouse — o clique não chegava. A nova versão só altera o
+   que mudou.
+5. **Programação nos dias disponíveis** (calendário padrão: seg–sex 08–12/13–17; sábados, domingos e feriados
+   indisponíveis; exceções de "Editar dia" em `data.meta.calendarioExcecoes`; indisponibilidades de equipamento em
+   `data.pcp_calendarios`):
+   * `syncPrograms()` do calendário V2.3.17 reconstrói os cartões a partir das OPs a cada exibição e só copiava
+     `Inicio/Fim/Prazo/ConflitoPendente`: os trechos (`Segmentos`) gravados pela "Sugestão de programação" se perdiam e
+     o cartão aparecia em todos os dias entre início e fim (sábados e domingos inclusive). O `saveLocal` passa a guardar
+     os trechos também em `data.meta.pcpSegmentos` e a devolvê-los ao cartão quando `Inicio/Fim` não mudaram; cartões
+     sem trechos (programados antes da correção) têm os trechos recalculados quando `Inicio/Fim` batem exatamente com
+     o calendário de trabalho;
+   * `pcpProgramarV238` (Plano > "Projetar sequência pelas datas já informadas") encadeava as etapas em tempo corrido;
+     agora usa o calendário de trabalho (exceções da linha da operação + indisponibilidades do equipamento);
+   * `pcpValidarConflitosV2315` usa os trechos (sem conflito falso em noites/fins de semana) e acusa operação em dia
+     indisponível;
+   * `pcpProgramarV235` (Programação > "Recalcular programação", dependia de `mrp_demandas` e dava erro) abre o
+     Calendário com a "Sugestão de programação".
 
 ## Testes (CI: job `versao-json`, Windows PowerShell 5.1 real)
 
@@ -76,6 +102,7 @@ mostrava quando a variável `current` já valia `cad_recursos` — e textos de p
 | `tests/primeira_tela.py` | todas as opções do menu como primeira tela (e após F5) sem erro JavaScript |
 | `tests/teste_migracao_json.py` | PostgreSQL real (schema original) → `IMPORTAR_POSTGRESQL.ps1` → servidor JSON: senhas antigas, estado idêntico, histórico completo, documentos byte a byte |
 | `tests/teste_capacidade_json.py` | Capacidade e Carga V1 no navegador: botões no Cadastro de Recursos, capacidade e histórico gravados no servidor, relatório após F5 |
+| `tests/teste_calendario_json.py` | Calendário de Produção: tela estável, "Editar dia" com clique real do mouse (liberar sábado, bloquear dia útil), sugestão de programação e "Projetar sequência" sem operações em dias indisponíveis, trechos gravados e mantidos após F5, programação da versão anterior, "Validar conflitos", "Recalcular programação", "Limpar datas" |
 | `tests/teste_gerar_pacote_json.py` | `.zip` para outros usuários com dados, sem backups/logs |
 | `tests/teste_redefinir_senha_json.py` | `REDEFINIR_SENHA.bat`: nova senha PBKDF2, reativação, senhas que não conferem |
 
