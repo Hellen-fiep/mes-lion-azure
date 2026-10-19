@@ -1288,7 +1288,8 @@
     var lote = $('bp_lote');
     estado.loteAuto = lote && bp.CodOrdemProducao && lote.value === bp.CodOrdemProducao ? lote.value : '';
     var status = String(bp.StatusPassaporte || 'RASCUNHO').toUpperCase();
-    preencherAutomatico({ aplicar: idx < 0 || status.indexOf('VALID') < 0 });
+    // passaporte VALIDADO não muda sozinho; o do formato anterior recebe os dados que o painel dele já mostrava
+    preencherAutomatico({ aplicar: idx < 0 || status.indexOf('VALID') < 0 || bp.CamposUnificados !== 'Sim' });
     aplicarFlags(estado.ocultos);
     contarGrupos();
     ligarEventos(div);

@@ -336,6 +336,8 @@ async def main():
         b1 = next((x for x in d.get('bp') or [] if x.get('BatteryPassportID') == 'BP0001'), {})
         ok(sim and b1.get('Sust_CarbonFootprint_Texto') == antigo[1] and b1.get('DataCriacao') == '11/08/2026' and len(dialogos) == 2,
            'passaporte antigo salvo no formato novo sem perder os dados (com confirmação: a OP dele não existe mais)', dialogos)
+        html_ant2 = await ev("standaloneDashboardHTML(data.bp.find(b => b.BatteryPassportID === 'BP0001'))")
+        ok(b1.get('BP_DP11_Capacity') == '100' and '100 Ah' in html_ant2 and 'Ametista' in html_ant2, 'depois de salvo, o passaporte antigo continua mostrando os dados da célula', b1.get('BP_DP11_Capacity'))
 
         # ---------------------------------------------------------------- 8) F5, PDF interno e tela do passaporte
         await page.reload(wait_until='load')
