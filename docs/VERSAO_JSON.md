@@ -92,6 +92,11 @@ originais) — os arquivos do frontend continuam idênticos aos originais e a pa
      indisponível;
    * `pcpProgramarV235` (Programação > "Recalcular programação", dependia de `mrp_demandas` e dava erro) abre o
      Calendário com a "Sugestão de programação".
+6. **Carga × capacidade** (`mesCapCalcular`): o módulo V1 lia as datas da programação só como `dd/mm/aaaa hh:mm`, mas
+   o PCP grava `dd/mm/aaaa, hh:mm` (com vírgula); a data caía no `new Date()` do navegador (leitura americana): dias 13
+   a 31 ficavam de fora e dias 1 a 12 eram contados com dia e mês trocados. Mesmo cálculo e mesma tabela, com a data
+   lida corretamente (usa os `Segmentos` quando existem).
+7. **MRP > "Abrir OPs"**: chamava `render('ops')`, tela inexistente (abria um cadastro vazio "ops"); vai para `render('op')`.
 
 ## Testes (CI: job `versao-json`, Windows PowerShell 5.1 real)
 
@@ -102,7 +107,7 @@ originais) — os arquivos do frontend continuam idênticos aos originais e a pa
 | `tests/primeira_tela.py` | todas as opções do menu como primeira tela (e após F5) sem erro JavaScript |
 | `tests/teste_migracao_json.py` | PostgreSQL real (schema original) → `IMPORTAR_POSTGRESQL.ps1` → servidor JSON: senhas antigas, estado idêntico, histórico completo, documentos byte a byte |
 | `tests/teste_capacidade_json.py` | Capacidade e Carga V1 no navegador: botões no Cadastro de Recursos, capacidade e histórico gravados no servidor, relatório após F5 |
-| `tests/teste_calendario_json.py` | Calendário de Produção: tela estável, "Editar dia" com clique real do mouse (liberar sábado, bloquear dia útil), sugestão de programação e "Projetar sequência" sem operações em dias indisponíveis, trechos gravados e mantidos após F5, programação da versão anterior, "Validar conflitos", "Recalcular programação", "Limpar datas" |
+| `tests/teste_calendario_json.py` | Calendário de Produção: tela estável, "Editar dia" com clique real do mouse (liberar sábado, bloquear dia útil), sugestão de programação e "Projetar sequência" sem operações em dias indisponíveis, trechos gravados e mantidos após F5, programação da versão anterior, "Validar conflitos", "Recalcular programação", "Limpar datas", carga do relatório Carga × capacidade, MRP > "Abrir OPs" |
 | `tests/teste_gerar_pacote_json.py` | `.zip` para outros usuários com dados, sem backups/logs |
 | `tests/teste_redefinir_senha_json.py` | `REDEFINIR_SENHA.bat`: nova senha PBKDF2, reativação, senhas que não conferem |
 

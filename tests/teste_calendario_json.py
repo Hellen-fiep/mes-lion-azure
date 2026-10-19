@@ -8,7 +8,9 @@ Teste no navegador do Calendário de Produção da versão JSON (correções do 
   - cartão em tempo corrido sobre um sábado (programação antiga) aparece em "Validar conflitos";
   - Plano de Produção > "Projetar sequência pelas datas já informadas" só em dias e horários de trabalho, inclusive
     com sábado liberado só para uma linha de produção;
-  - Programação > "Recalcular programação" abre a sugestão de programação sem erro; "Limpar datas" limpa os trechos.
+  - Programação > "Recalcular programação" abre a sugestão de programação sem erro; "Limpar datas" limpa os trechos;
+  - PCP > Carga × capacidade: a carga é a soma das horas programadas no período (datas no formato do PCP, com vírgula);
+  - MRP > "Abrir OPs" abre a tela de Ordens de Produção.
 
 Uso: python teste_calendario_json.py <url_base>
 """
@@ -87,6 +89,19 @@ def problemas_programacao(cartoes):
         if abs(soma - float(str(p.get('Minutos') or 0).replace(',', '.'))) > 1:
             erros.append(f'{nome}: trechos somam {soma:.0f} min, operação tem {p.get("Minutos")} min')
     return erros, programados
+
+
+def carga_esperada(cartoes, lo, hi):
+    """Horas programadas por equipamento dentro de [lo, hi] (trechos de trabalho; sem trechos, Início–Fim)."""
+    total = {}
+    for p in cartoes:
+        if not p.get('Inicio'): continue
+        c = str(p.get('RecursoRoteiro') or p.get('Recurso') or p.get('CodEquipamento') or '')
+        for s in p.get('Segmentos') or [{'Inicio': p.get('Inicio'), 'Fim': p.get('Fim')}]:
+            a, z = dt(s['Inicio']), dt(s['Fim'])
+            if a and z and z > a:
+                total[c] = total.get(c, 0) + max(0, (min(z, hi) - max(a, lo)).total_seconds()) / 3600
+    return total
 
 
 async def main():
@@ -236,6 +251,23 @@ async def main():
         sem = [p.get('OP') for p in d.get('pcp_programacao') or [] if p.get('Inicio') and not p.get('Segmentos')]
         ok(n2 == n and not prob and not sem, 'servidor depois do F5: trechos mantidos (o calendário reconstrói os cartões e os trechos voltam)', prob[:6] or sem[:6])
 
+        # ---------------------------------------------------------------- Carga × capacidade com a programação de outubro
+        esperado = carga_esperada(d.get('pcp_programacao') or [], datetime.datetime(2026, 10, 1), datetime.datetime(2026, 10, 31, 23, 59, 59))
+        await page.evaluate("mesCapRelatorio()")
+        await page.wait_for_timeout(600)
+        await page.fill('#mcInicio', '2026-10-01'); await page.fill('#mcFim', '2026-10-31')
+        await clique_humano(page.get_by_role('button', name='Calcular', exact=True))
+        await page.wait_for_timeout(800)
+        rel = await page.evaluate("(window.__mesCapReport || []).map(r => [r.Codigo, r.Carga])")
+        dif = {c: (round(v, 2), round(esperado.get(c, 0), 2)) for c, v in rel if abs(v - esperado.get(c, 0)) > 0.01}
+        ok(rel and not dif and sum(esperado.values()) > 0, f'Carga × capacidade: carga de outubro/2026 = horas dos trechos programados ({sum(esperado.values()):.1f} h)', dif)
+        linha10 = await page.evaluate("[...document.querySelectorAll('#mesCapResultado tbody tr')].map(t => [...t.cells].map(c => c.textContent)).find(c => c[0] === '10') || []")
+        def numero_br(t):
+            try: return float(str(t).replace('.', '').replace(',', '.'))
+            except ValueError: return None
+        ok(len(linha10) == 9 and esperado.get('10', 0) > 0 and numero_br(linha10[5]) is not None and abs(numero_br(linha10[5]) - esperado['10']) < 0.01,
+           'Carga × capacidade mostra na tabela a carga do equipamento 10', (linha10, round(esperado.get('10', 0), 2)))
+
         # ---------------------------------------------------------------- programação feita pela versão anterior (trechos não gravados)
         d = await dados_servidor()
         for p in d.get('pcp_programacao') or []: p.pop('Segmentos', None)
@@ -372,6 +404,14 @@ async def main():
         d, sim = await esperar_servidor(lambda d: not any(p.get('Inicio') or p.get('Segmentos') for p in d.get('pcp_programacao') or [])
                                         and not ((d.get('meta') or {}).get('pcpSegmentos') or {}))
         ok(sim, '"Limpar datas" limpa início, fim e trechos (cartões e data.meta.pcpSegmentos)', '')
+
+        # ---------------------------------------------------------------- MRP > Abrir OPs
+        await page.evaluate("render('mrp')")
+        await page.wait_for_timeout(600)
+        await clique_humano(page.get_by_role('button', name='Abrir OPs', exact=True))
+        await page.wait_for_timeout(600)
+        titulo = await page.inner_text('#title')
+        ok(titulo == 'Ordens de Produção', 'MRP > "Abrir OPs" abre a tela de Ordens de Produção', titulo)
 
         ok(not erros_js, 'nenhum erro JavaScript', erros_js[:3])
         await b.close()

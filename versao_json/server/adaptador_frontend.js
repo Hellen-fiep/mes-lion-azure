@@ -10,7 +10,9 @@
      5) Programação nos dias disponíveis: o calendário guarda os trechos de trabalho de cada operação (não mostra mais
         operações em sábados, domingos, feriados e dias bloqueados), "Projetar sequência" do Plano usa o calendário de
         trabalho, "Validar conflitos" acusa operações em dia indisponível e "Recalcular programação" abre a
-        "Sugestão de programação" do Calendário.
+        "Sugestão de programação" do Calendário;
+     6) Carga × capacidade: a carga da programação é lida com as datas no formato que o PCP grava (com vírgula);
+     7) MRP: o botão "Abrir OPs" abre a tela de Ordens de Produção.
    ===================================================================== */
 
 /* ---------------------------------------------------------------------
@@ -547,5 +549,95 @@
   window.pcpProgramarV235 = function () {
     try { if (typeof render === 'function') render('pcp_calendario'); } catch (e) { if (window.console) console.warn('MES LION: calendário', e); }
     if (typeof window.mesAbrirProjecao === 'function') window.mesAbrirProjecao();
+  };
+})();
+
+/* ---------------------------------------------------------------------
+   6) CARGA × CAPACIDADE (js/mes_capacidade_carga_v1.js). A carga lia as datas da programação só no formato
+   "dd/mm/aaaa hh:mm", mas o PCP grava "dd/mm/aaaa, hh:mm" (com vírgula, como o navegador escreve em português): a data
+   não era reconhecida e caía na leitura americana do navegador — dias 13 a 31 ficavam de fora (carga zero) e dias
+   1 a 12 eram contados com dia e mês trocados (10/11 virava 11/10). Mesmo cálculo e mesma tela do módulo, com a data
+   lida corretamente; os trechos de trabalho (Segmentos) da programação continuam sendo usados quando existem.
+   --------------------------------------------------------------------- */
+(function () {
+  'use strict';
+  if (typeof window.mesCapCalcular !== 'function') return;
+  var A = function (x) { return Array.isArray(x) ? x : []; };
+  function $(id) { return document.getElementById(id); }
+  function E(x) { return String(x == null ? '' : x).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function N(x) { var n = Number(String(x == null ? '' : x).replace(',', '.')); return isFinite(n) ? n : 0; }
+  function codigo(r) { return String(r['Código Equipamento'] || r.CodEquipamento || r.Codigo || '').trim(); }
+  function fmt(x) { return Number(x).toLocaleString('pt-BR', { maximumFractionDigits: 2 }); }
+  function dataHora(x) {
+    if (!x) return null;
+    var m = String(x).match(/^(\d{2})\/(\d{2})\/(\d{4})\D+(\d{2}):(\d{2})/);
+    var d = m ? new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]) : new Date(String(x));
+    return isNaN(d) ? null : d;
+  }
+  function dias(a, b) {
+    var o = [];
+    for (var d = new Date(a + 'T12:00:00'); d <= new Date(b + 'T12:00:00') && o.length < 370; d.setDate(d.getDate() + 1)) o.push(new Date(d));
+    return o;
+  }
+  function util(d) { return d.getDay() !== 0 && d.getDay() !== 6; }
+  function horasProgramadas(c, ini, fim) {
+    var total = 0, lo = new Date(ini + 'T00:00:00'), hi = new Date(fim + 'T23:59:59');
+    data.pcp_programacao.forEach(function (p) {
+      if (!p || String(p.RecursoRoteiro || p.Recurso || p.CodEquipamento || '') !== c) return;
+      var segs = A(p.Segmentos);
+      if (!segs.length) segs = [{ Inicio: p.Inicio, Fim: p.Fim }];
+      segs.forEach(function (s) {
+        var a = dataHora(s && s.Inicio), b = dataHora(s && s.Fim);
+        if (!a || !b || b <= a) return;
+        total += Math.max(0, Math.min(b, hi) - Math.max(a, lo)) / 3600000;
+      });
+    });
+    return total;
+  }
+  function relatorio(ini, fim) {
+    data.mes_capacidades = A(data.mes_capacidades);
+    data.mes_capacidade_historico = A(data.mes_capacidade_historico);
+    data.pcp_programacao = A(data.pcp_programacao);
+    data.pcp_calendarios = A(data.pcp_calendarios);
+    var uteis = dias(ini, fim).filter(util).length;
+    return A(data.cad_recursos).filter(function (r) { return r && codigo(r); }).map(function (r) {
+      var c = codigo(r), p = data.mes_capacidades.find(function (x) { return x && x.Codigo === c; });
+      var nom = p ? uteis * N(p.HorasDia) : 0, ef = nom * (p ? N(p.Eficiencia) / 100 : 0), carga = horasProgramadas(c, ini, fim);
+      return { Codigo: c, Equipamento: r.Equipamento || r.Descricao || '', Escala: r.Escala || '', HorasNominais: nom, HorasEfetivas: ef, Carga: carga,
+        Saldo: ef - carga, Ocupacao: ef > 0 ? 100 * carga / ef : null, Configurado: !!p };
+    });
+  }
+  window.mesCapCalcular = function () {
+    var a = $('mcInicio') && $('mcInicio').value, b = $('mcFim') && $('mcFim').value;
+    if (!a || !b || a > b || dias(a, b).length > 366) return alert('Selecione um período válido de até 366 dias.');
+    var r = relatorio(a, b);
+    window.__mesCapReport = r;
+    var linhas = r.map(function (x) {
+      return '<tr><td>' + E(x.Codigo) + '</td><td>' + E(x.Equipamento) + '</td><td>' + E(x.Escala) + '</td><td>' + (x.Configurado ? fmt(x.HorasNominais) : '—') +
+        '</td><td>' + (x.Configurado ? fmt(x.HorasEfetivas) : 'Não cadastrada') + '</td><td>' + fmt(x.Carga) + '</td><td>' + (x.Configurado ? fmt(x.Saldo) : '—') +
+        '</td><td>' + (x.Ocupacao === null ? '—' : fmt(x.Ocupacao) + '%') + '</td><td>' +
+        (x.Ocupacao === null ? 'Sem parâmetros' : x.Ocupacao > 100 ? 'Sobrecarga' : x.Ocupacao > 85 ? 'Atenção' : 'OK') + '</td></tr>';
+    }).join('');
+    var caixa = $('mesCapResultado');
+    if (caixa) caixa.innerHTML = '<div style="overflow:auto"><table><thead><tr><th>Código</th><th>Equipamento</th><th>Escala</th><th>Horas nominais</th>' +
+      '<th>Horas efetivas</th><th>Carga (h)</th><th>Saldo (h)</th><th>Ocupação</th><th>Situação</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+  };
+})();
+
+/* ---------------------------------------------------------------------
+   7) MRP > "Abrir OPs" (V2.3.16/V2.3.17) chamava render('ops'), uma tela que não existe: abria um cadastro vazio
+   chamado "ops". A tela de Ordens de Produção é render('op').
+   --------------------------------------------------------------------- */
+(function () {
+  'use strict';
+  var renderAnterior = window.render;
+  if (typeof renderAnterior !== 'function') return;
+  window.render = function (k) {
+    if (k === 'ops') {
+      var args = Array.prototype.slice.call(arguments);
+      args[0] = 'op';
+      return renderAnterior.apply(this, args);
+    }
+    return renderAnterior.apply(this, arguments);
   };
 })();

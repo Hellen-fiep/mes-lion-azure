@@ -63,6 +63,8 @@ CALENDÁRIO DE PRODUÇÃO (PCP) — DIAS DISPONÍVEIS
   começa na sexta continua na segunda, e no Calendário aparece só nos dias em que é trabalhada.
 - "Validar conflitos" também aponta as operações que caem em dia indisponível.
 - "Recalcular programação" (PCP > Programação) abre a mesma "Sugestão de programação" do Calendário.
+- "Carga × capacidade" soma as horas programadas de cada equipamento no período. Antes a carga da programação não
+  era lida e o relatório mostrava carga zero ou no mês errado.
 - Programação feita antes desta atualização: as operações programadas com "Sugerir programação" passam a aparecer
   só nos dias de trabalho. As programadas com "Projetar sequência" na versão anterior (tempo corrido, inclusive
   sábados e domingos) aparecem em "Validar conflitos"; para refazê-las, use de novo "Projetar sequência pelas datas
@@ -101,13 +103,17 @@ O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
   arquivo server\adaptador_frontend.js: o erro herdado de ACV/LCC (coleções criadas ao carregar a página que se
   perdiam ao entrar), a mesma da versão AZURE; os botões "Capacidades das máquinas" e "Carga × capacidade" também
   no Cadastro de Recursos (antes só apareciam na tela PCP > Capacidade); o botão "Editar dia" do Calendário, que não
-  abria; e a programação automática nos dias disponíveis (veja CALENDÁRIO DE PRODUÇÃO).
+  abria; a programação automática nos dias disponíveis (veja CALENDÁRIO DE PRODUÇÃO); e a carga do relatório
+  "Carga × capacidade", que não lia as datas gravadas pelo PCP.
 - Senhas novas usam PBKDF2 (o mesmo formato da versão AZURE); senhas trazidas do PostgreSQL são aceitas e convertidas
   no primeiro login.
 - Não vêm no pacote os arquivos que só servem ao PostgreSQL: CRIAR_BANCO_POSTGRESQL.bat, database\ e .env.example.
 - Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
 
 VERSÕES DO SERVIDOR JSON
+- 1.0.2 (19/10/2026): "Carga × capacidade" passa a somar a carga da programação (as datas gravadas pelo PCP não eram
+  reconhecidas: carga zero nos dias 13 a 31 e dia e mês trocados nos dias 1 a 12); no MRP, "Abrir OPs" abre a tela
+  de Ordens de Produção (abria um cadastro vazio).
 - 1.0.1 (19/10/2026): "Editar dia" volta a abrir; a programação automática não usa mais sábados, domingos,
   feriados nem dias bloqueados (Sugerir programação, Projetar sequência, Validar conflitos e Recalcular programação).
 - 1.0.0 (16/10/2026): primeira versão sem PostgreSQL.
