@@ -1560,12 +1560,19 @@ if (Trava-Ativa $travaExistente) {
 if ($Dados -match '\\OneDrive') {
     Write-Host 'AVISO: a pasta de dados está no OneDrive. Prefira uma pasta local (ex.: C:\MES_LION) - a sincronização pode atrasar as gravações.' -ForegroundColor Yellow
 }
+try {
+    Carregar-Adaptador
+} catch {
+    Write-Host ''
+    Write-Host ('ERRO: ' + $_.Exception.Message) -ForegroundColor Red
+    Escrever-Log ('ERRO na inicialização: ' + $_.Exception.Message) 'Red' -Arquivo
+    exit 4
+}
 $adminCriado = $false
 try {
     Converter-EnvelopeSeNecessario
     $adminCriado = Garantir-Administrador
     Conferir-Frontend
-    Carregar-Adaptador
 } catch {
     Write-Host ''
     Write-Host ('ERRO ao preparar os dados: ' + $_.Exception.Message) -ForegroundColor Red

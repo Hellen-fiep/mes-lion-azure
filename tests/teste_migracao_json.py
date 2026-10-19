@@ -111,8 +111,8 @@ print('== 2) Pacote da versão JSON (com dados anteriores, que devem ser guardad
 pacote = os.path.join(tmp, 'MES_LION_1_0_JSON')
 shutil.copytree(FRONT, pacote, ignore=shutil.ignore_patterns('Dados', 'server'))
 os.makedirs(os.path.join(pacote, 'server'))
-for ps1 in glob.glob(os.path.join(RAIZ, 'versao_json', 'server', '*.ps1')):
-    shutil.copy(ps1, os.path.join(pacote, 'server'))
+for arq in glob.glob(os.path.join(RAIZ, 'versao_json', 'server', '*.ps1')) + glob.glob(os.path.join(RAIZ, 'versao_json', 'server', '*.js')):
+    shutil.copy(arq, os.path.join(pacote, 'server'))   # scripts + adaptador do frontend (o servidor não abre sem ele)
 dados = os.path.join(pacote, 'Dados'); os.makedirs(dados)
 anterior = json.dumps({'materiais': [{'Código': 'ANTERIOR'}]}).encode()
 open(os.path.join(dados, 'MES_LION_DATA.json'), 'wb').write(anterior)
