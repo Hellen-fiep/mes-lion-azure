@@ -16,7 +16,8 @@ COMO ABRIR
 
 ATUALIZAR UMA INSTALAÇÃO QUE JÁ ESTÁ EM USO (SEM PERDER OS DADOS)
 1. Feche a janela do servidor do MES.
-2. Copie a pasta server deste pacote por cima da pasta server da instalação atual (substitua os arquivos).
+2. Copie a pasta server deste pacote por cima da pasta server da instalação atual (substitua os arquivos; a pasta
+   tem o servidor MES_LION_SERVER_JSON.ps1 e os arquivos adaptador_frontend.js e adaptador_passaporte.js).
    NÃO copie a pasta Dados: é nela que estão os seus dados, usuários e histórico. Não extraia o .zip inteiro
    por cima da pasta atual.
 3. Abra de novo com INICIAR_MES.bat. No modo rede basta atualizar o computador que abre o servidor; nos outros,
@@ -69,6 +70,46 @@ CALENDÁRIO DE PRODUÇÃO (PCP) — DIAS DISPONÍVEIS
   só nos dias de trabalho. As programadas com "Projetar sequência" na versão anterior (tempo corrido, inclusive
   sábados e domingos) aparecem em "Validar conflitos"; para refazê-las, use de novo "Projetar sequência pelas datas
   já informadas", ou "Limpar datas" e depois "Sugerir programação por data inicial".
+- Histórico da programação: as operações já executadas continuam no Calendário, em cinza (não arrastam nem editam),
+  no dia e horário reais dos apontamentos de tempo (EXECUTADA; EM EXECUÇÃO enquanto o apontamento está aberto), no
+  dia do apontamento de produção quando não há horário, ou no horário programado quando a OP foi concluída sem
+  apontamento. Antes, ao concluir a OP, os cartões sumiam do Calendário. Duplo clique mostra o que foi programado e o
+  que foi executado. O histórico fica gravado (data.pcp_historico) e não é apagado por "Limpar datas" nem
+  remarcado por "Sugerir programação" ou "Projetar sequência".
+
+PASSAPORTE DA BATERIA
+- Ao escolher a OP vinculada, o passaporte puxa sozinho: os dados da estrutura da célula (modelo, formato, química,
+  capacidade, tensão nominal, energia, dimensões e peso), a pegada de carbono calculada para a OP e a composição
+  mássica. Fonte da pegada de carbono: o AICV calculado no módulo ACV para a OP (ou para a OP de PA dela) ou, se não
+  houver, a ACV da família de OPs (Sustentabilidade: OP de PA + OPs de PI). Dá para escolher em "Fonte do cálculo ACV".
+- Nenhum campo é obrigatório. Cada dado tem a marca "painel": marcado, aparece no painel do cliente (e no HTML
+  publicado para o QR); desmarcado, fica só no cadastro e no PDF interno. Os dados de acesso restrito (composição
+  detalhada, números de peça, peças sobressalentes, desmontagem, segurança e relatórios de ensaio) vêm desmarcados.
+  Campos vazios nunca aparecem no painel.
+- Status RASCUNHO: salva com informações incompletas e com a OP ainda em andamento. VALIDADO ou EM REVISÃO com a OP
+  aberta (ou que não existe mais) pede confirmação.
+- Composição mássica publicada: só as massas úteis. Na tabela de massas cada material tem a marca "Publicar"; os
+  solventes (NMP, água) vêm desmarcados porque evaporam no processo e não fazem parte do peso final da célula.
+- Os campos que se repetiam nos blocos "UE" e "Guidance v2.0" viraram um cadastro único, por assunto; os valores já
+  preenchidos nos passaportes antigos são aproveitados.
+- "⟳ Atualizar com os dados da OP" puxa os dados de novo; o que foi alterado à mão só é trocado depois de confirmar.
+  Passaporte VALIDADO não muda sozinho ao ser aberto.
+
+BIBLIOTECA DE FATORES AMBIENTAIS (ACV)
+- A biblioteca de fatores GWP100 (ecoinvent cut-off, IPCC 100a) foi recriada: os 15 fatores da tabela GWP100 e os 4
+  que já estavam na biblioteca (NMP, água deionizada, LFP e grafite natural). Aparece em ACV > Fatores e em
+  ACV > Biblioteca de Dados Ambientais (versão ativa, com os 12 materiais do cadastro). Polypropylene granulate não
+  tem material correspondente no cadastro e fica na biblioteca com o código PROC_PP (como PROC_AL, PROC_CU,
+  PROC_EXT, PROC_ROLL, ENERGIA_BR e ENERGIA_CN).
+- A versão ativa da biblioteca vale nos cálculos de ACV. Antes, uma versão importada só era usada nos materiais que
+  ainda não tinham fator.
+- O banco LCI ganhava linhas repetidas a cada cálculo (a base chegou a 54 mil linhas e 31 MB). As repetidas são
+  removidas na primeira entrada depois da atualização e não voltam.
+- "Baixar template Excel (com exemplo)" gera um .xlsx com linhas de EXEMPLO fictícias (em amarelo) já no formato
+  válido, uma linha por material para preencher e a aba "Como preencher". Linhas sem FatorPorKg são ignoradas; se as
+  linhas de exemplo forem importadas sem alteração, o MES pergunta antes de gravar. A importação aceita o .xlsx
+  salvo pelo Excel, CSV e o .xls do template anterior. O .xls do Excel 97-2003 não é lido: salve como "Pasta de
+  Trabalho do Excel (.xlsx)" ou CSV.
 
 ONDE FICAM OS DADOS (pasta Dados)
 - MES_LION_DATA.json ............. todos os dados do MES
@@ -103,14 +144,21 @@ O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
   arquivo server\adaptador_frontend.js: o erro herdado de ACV/LCC (coleções criadas ao carregar a página que se
   perdiam ao entrar), a mesma da versão AZURE; os botões "Capacidades das máquinas" e "Carga × capacidade" também
   no Cadastro de Recursos (antes só apareciam na tela PCP > Capacidade); o botão "Editar dia" do Calendário, que não
-  abria; a programação automática nos dias disponíveis (veja CALENDÁRIO DE PRODUÇÃO); e a carga do relatório
-  "Carga × capacidade", que não lia as datas gravadas pelo PCP.
+  abria; a programação automática nos dias disponíveis e o histórico da programação (veja CALENDÁRIO DE
+  PRODUÇÃO); e a carga do relatório "Carga × capacidade", que não lia as datas gravadas pelo PCP. O arquivo
+  server\adaptador_passaporte.js traz o passaporte da bateria e a biblioteca de fatores (veja PASSAPORTE DA BATERIA
+  e BIBLIOTECA DE FATORES AMBIENTAIS).
 - Senhas novas usam PBKDF2 (o mesmo formato da versão AZURE); senhas trazidas do PostgreSQL são aceitas e convertidas
   no primeiro login.
 - Não vêm no pacote os arquivos que só servem ao PostgreSQL: CRIAR_BANCO_POSTGRESQL.bat, database\ e .env.example.
 - Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
 
 VERSÕES DO SERVIDOR JSON
+- 1.1.0 (19/10/2026): passaporte da bateria sem campos obrigatórios, com a marca "painel" em cada dado, rascunho
+  salvo incompleto, dados da estrutura da célula, pegada de carbono (AICV ou ACV da família) e composição mássica
+  puxados da OP, massas úteis (sem solventes) no painel do cliente e campos repetidos unificados; biblioteca de
+  fatores GWP100 recriada, versão ativa valendo nos cálculos, banco LCI sem linhas repetidas e template de
+  importação com exemplo válido (.xlsx); histórico da programação no Calendário (operações executadas em cinza).
 - 1.0.2 (19/10/2026): "Carga × capacidade" passa a somar a carga da programação (as datas gravadas pelo PCP não eram
   reconhecidas: carga zero nos dias 13 a 31 e dia e mês trocados nos dias 1 a 12); no MRP, "Abrir OPs" abre a tela
   de Ordens de Produção (abria um cadastro vazio).

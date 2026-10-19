@@ -24,6 +24,7 @@ REDEFINIR_SENHA.bat                   nova senha para um usuário (e reativa)
 LEIA-ME_VERSAO_JSON.txt               instruções para o usuário
 server/MES_LION_SERVER_JSON.ps1       servidor HTTP (TcpListener + Socket.Select), rotas, senhas, backups
 server/adaptador_frontend.js          correções do frontend que o servidor inclui no index.html ao entregar a página
+server/adaptador_passaporte.js        passaporte da bateria e biblioteca de fatores ambientais (incluído depois do anterior)
 server/IMPORTAR_POSTGRESQL.ps1        importador (somente leitura no PostgreSQL)
 server/GERAR_PACOTE.ps1               gerador do pacote para distribuir
 montar_pacote.py                      monta o pacote: frontend original conferido + server + .bat + LEIA-ME + Dados
@@ -64,10 +65,12 @@ Diferenças em relação ao servidor PowerShell original (todas corrigem problem
 * Estado inválido/incompleto é recusado com 400 sem alterar o arquivo; `DELETE /api/storage/MES_LION_DATA` nunca apaga
   o estado; não permite ficar sem administrador ativo.
 
-## Adaptador do frontend (`server/adaptador_frontend.js`)
+## Adaptadores do frontend (`server/adaptador_frontend.js` e `server/adaptador_passaporte.js`)
 
-O servidor lê o arquivo ao iniciar e o inclui no fim do `index.html` ao entregar a página (depois de todos os scripts
-originais) — os arquivos do frontend continuam idênticos aos originais e a pasta `server/` nunca é servida. Correções:
+O servidor lê os dois arquivos ao iniciar (a falta de um deles impede a abertura, com mensagem) e os inclui no fim do
+`index.html` ao entregar a página, nessa ordem e cada um no seu `<script>` (`mes-adaptador-json` e
+`mes-adaptador-passaporte`), depois de todos os scripts originais — os arquivos do frontend continuam idênticos aos
+originais e a pasta `server/` nunca é servida. Correções de `adaptador_frontend.js`:
 
 1. **ACV/LCC**: recria as coleções que os módulos V1.0.19–V1.1.3 criam ao carregar a página e que se perdiam quando o
    estado do servidor substituía `data` (erro ao abrir ACV/LCC, salvar ICV, iniciar apontamento).
@@ -91,12 +94,58 @@ originais) — os arquivos do frontend continuam idênticos aos originais e a pa
    * `pcpValidarConflitosV2315` usa os trechos (sem conflito falso em noites/fins de semana) e acusa operação em dia
      indisponível;
    * `pcpProgramarV235` (Programação > "Recalcular programação", dependia de `mrp_demandas` e dava erro) abre o
-     Calendário com a "Sugestão de programação".
+     Calendário com a "Sugestão de programação";
+   * **histórico da programação**: o calendário V2.3.17 só monta cartões das OPs abertas — ao concluir a OP os cartões
+     sumiam. O `saveLocal` congela (`Congelado = "Sim"`) cada operação com apontamento de tempo (horário real; sessão
+     aberta = EM EXECUÇÃO), apontamento de produção (dia, expediente padrão) ou OP/etapa concluída (horário programado)
+     e guarda em `data.pcp_historico` (uma entrada por cartão, com o horário programado antes da execução); as
+     operações de OPs concluídas voltam à programação a partir do histórico. Cartões congelados ficam em cinza, sem
+     arrastar; o duplo clique mostra o histórico; "Limpar datas", "Projetar sequência" e a sugestão não os alteram
+     (a programação nova começa depois do último horário executado do equipamento); "Validar conflitos" não acusa
+     conflito entre operações executadas.
 6. **Carga × capacidade** (`mesCapCalcular`): o módulo V1 lia as datas da programação só como `dd/mm/aaaa hh:mm`, mas
    o PCP grava `dd/mm/aaaa, hh:mm` (com vírgula); a data caía no `new Date()` do navegador (leitura americana): dias 13
    a 31 ficavam de fora e dias 1 a 12 eram contados com dia e mês trocados. Mesmo cálculo e mesma tabela, com a data
    lida corretamente (usa os `Segmentos` quando existem).
 7. **MRP > "Abrir OPs"**: chamava `render('ops')`, tela inexistente (abria um cadastro vazio "ops"); vai para `render('op')`.
+
+Correções de `adaptador_passaporte.js`:
+
+8. **Biblioteca de fatores GWP100**: a biblioteca da V1.1.3 era criada ao carregar a página e se perdia quando o estado
+   do servidor substituía `data`. Depois do login (uma vez por base, marcada em `data.meta.bibliotecaFatoresGWP100`)
+   entram 19 fatores (ecoinvent cut-off, IPCC 100a v1.3) em `data.acv_fatores` — os 15 da tabela GWP100 e os 4 que já
+   estavam na biblioteca — e uma versão da Biblioteca de Dados Ambientais em `data.sust_lci` com os materiais do
+   cadastro (lote `BIBLIOTECA-GWP100-MES`). Polypropylene granulate e os processos/energia ficam com códigos
+   `PROC_*`/`ENERGIA_*` (não são materiais do cadastro). ACV > Fatores mostra a lista legível.
+9. **Banco LCI** (`ensureLCIDatabaseFromEntradasV37`): o teste de existência procurava o cenário "Base / Brasil", mas a
+   linha nova era gravada com o cenário do fator antigo — a cada cálculo (é chamada em todo `lciActiveFactorV37`)
+   repetia linhas (54 mil linhas, 31 MB na base real). As linhas idênticas são removidas e a rotina não repete.
+10. **Versão ativa vale nos cálculos** (`lciActiveFactorV37`): usava o primeiro fator preenchido do material e as
+    versões importadas entram no fim da lista — a importação não mudava o cálculo de quem já tinha fator. Agora a
+    versão ativa (`LibraryActive = "Sim"`) vem primeiro.
+11. **Template e importação da Biblioteca de Dados Ambientais**: o template era uma tabela HTML com extensão `.xls`
+    (o Excel avisa do formato e, salvo como `.xls` 97-2003, a importação não lia nada: "A planilha não possui registros
+    válidos"). Agora é um `.xlsx` gerado no navegador (aba "Fatores" com 3 linhas de EXEMPLO fictícias válidas, uma
+    linha por material, lista de indicadores; aba "Como preencher"). A importação lê `.xlsx` (inclusive compactado
+    pelo Excel, com textos compartilhados, via `DecompressionStream`), CSV (`;`, `,` ou tabulação, com aspas, UTF-8
+    ou ANSI) e o `.xls`-HTML antigo; localiza a linha de títulos; ignora linhas sem fator; confere código do material,
+    número e indicador; pergunta antes de gravar linhas de EXEMPLO; explica o `.xls` binário.
+12. **Passaporte da bateria**:
+    * formulário: os blocos V1.1.1 ("UE") e V1.1.4 ("Guidance v2.0") repetiam os mesmos dados (fabricante, modelo,
+      capacidade, tensões, peso, vida útil, resíduos…) e marcavam obrigatórios; viraram um catálogo único por
+      assunto (chaves `BP_DP..`/`EU_..`; valores antigos aproveitados como reserva), sem obrigatório, com a marca
+      "painel" em cada dado (desmarcados em `CamposOcultos`; padrão: dados de acesso restrito DP45–DP50 e cliente);
+    * OP: lista OPs encerradas e, para rascunho, OPs de PA em andamento; `bpOPChange` não bloqueia OP aberta e
+      preenche estrutura da célula (`data.estrutura` do PA), data de fabricação, composição detalhada, peso (massa
+      útil quando todos os materiais têm conversão para kg) e pegada de carbono (por célula, por kWh, por kg) do AICV
+      da OP (`data.acv_resultados`) ou da ACV da família (`calcSustFamiliaOPV33`), escolha gravada em `FonteACV`;
+      campos alterados à mão são mantidos (`CamposAutomaticos` guarda o último valor puxado);
+    * massas: `v4041ProcessMassRows` com a marca "Publicar" por material (`MassasExcluidas`; padrão: solventes por
+      categoria, nome ou consumo "Adição ao processo"), valores por célula;
+    * `saveBP`: rascunho salva sempre; outros status pedem confirmação com OP aberta ou inexistente; mantém as
+      chaves antigas do registro;
+    * `bpDashboardBody` (painel do cliente, HTML exportado e QR), `reportBPObj` (PDF interno com a coluna
+      "No painel", massas úteis e fora, ACVs disponíveis) e `showBP` (tela interna).
 
 ## Testes (CI: job `versao-json`, Windows PowerShell 5.1 real)
 
@@ -107,7 +156,8 @@ originais) — os arquivos do frontend continuam idênticos aos originais e a pa
 | `tests/primeira_tela.py` | todas as opções do menu como primeira tela (e após F5) sem erro JavaScript |
 | `tests/teste_migracao_json.py` | PostgreSQL real (schema original) → `IMPORTAR_POSTGRESQL.ps1` → servidor JSON: senhas antigas, estado idêntico, histórico completo, documentos byte a byte |
 | `tests/teste_capacidade_json.py` | Capacidade e Carga V1 no navegador: botões no Cadastro de Recursos, capacidade e histórico gravados no servidor, relatório após F5 |
-| `tests/teste_calendario_json.py` | Calendário de Produção: tela estável, "Editar dia" com clique real do mouse (liberar sábado, bloquear dia útil), sugestão de programação e "Projetar sequência" sem operações em dias indisponíveis, trechos gravados e mantidos após F5, programação da versão anterior, "Validar conflitos", "Recalcular programação", "Limpar datas", carga do relatório Carga × capacidade, MRP > "Abrir OPs" |
+| `tests/teste_calendario_json.py` | Calendário de Produção: tela estável, "Editar dia" com clique real do mouse (liberar sábado, bloquear dia útil), sugestão de programação e "Projetar sequência" sem operações em dias indisponíveis, trechos gravados e mantidos após F5, programação da versão anterior, "Validar conflitos", "Recalcular programação", "Limpar datas", carga do relatório Carga × capacidade, MRP > "Abrir OPs", histórico (OP concluída e apontamentos de tempo em cinza, gravados no servidor, mantidos após "Limpar datas" e F5) |
+| `tests/teste_passaporte_json.py` | biblioteca GWP100 e banco LCI sem repetição; versão ativa nos cálculos; template `.xlsx` com exemplo e importação (`.xlsx` do Excel, CSV, erros, `.xls` binário); passaporte: campos únicos sem obrigatório, marcas "painel", dados puxados da OP (estrutura, ACV da família e AICV, massas úteis), rascunho com OP aberta, painel do cliente e HTML do QR, alteração à mão mantida, passaporte antigo, F5, PDF interno |
 | `tests/teste_gerar_pacote_json.py` | `.zip` para outros usuários com dados, sem backups/logs |
 | `tests/teste_redefinir_senha_json.py` | `REDEFINIR_SENHA.bat`: nova senha PBKDF2, reativação, senhas que não conferem |
 

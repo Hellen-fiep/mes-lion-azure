@@ -10,7 +10,7 @@
      5) Programação nos dias disponíveis: o calendário guarda os trechos de trabalho de cada operação (não mostra mais
         operações em sábados, domingos, feriados e dias bloqueados), "Projetar sequência" do Plano usa o calendário de
         trabalho, "Validar conflitos" acusa operações em dia indisponível e "Recalcular programação" abre a
-        "Sugestão de programação" do Calendário;
+        "Sugestão de programação" do Calendário; operações já executadas ficam no calendário em cinza (histórico);
      6) Carga × capacidade: a carga da programação é lida com as datas no formato que o PCP grava (com vírgula);
      7) MRP: o botão "Abrir OPs" abre a tela de Ordens de Produção.
    ===================================================================== */
@@ -383,6 +383,7 @@
       var k = chaveCartao(p), op = String(p.OP || p.Demanda || '');
       vistos[k] = true;
       ops[op] = true;
+      if (congelado(p)) return;   // histórico da programação (5e): trechos reais vêm dos apontamentos
       if (!p.Inicio || !p.Fim) { if ('Segmentos' in p) delete p.Segmentos; return; }
       if (Array.isArray(p.Segmentos) && p.Segmentos.length && segmentosCoerentes(p, p.Segmentos)) {
         novos[k] = { OP: op, Inicio: p.Inicio, Fim: p.Fim, Segmentos: p.Segmentos };
@@ -412,6 +413,7 @@
   var gravarAnterior = window.saveLocal;
   if (typeof gravarAnterior === 'function' && !gravarAnterior.__mesSegmentos) {
     var gravar = function () {
+      try { atualizarHistorico(); } catch (e) { if (window.console) console.warn('MES LION: histórico da programação', e); }
       try { guardarRestaurarSegmentos(); } catch (e) { if (window.console) console.warn('MES LION: trechos da programação', e); }
       return gravarAnterior.apply(this, arguments);
     };
@@ -434,17 +436,22 @@
       porOP[k].push(p);
     });
     ordemOPs.forEach(function (op) {
-      var lista = porOP[op].slice().sort(function (x, y) {
+      var todos = porOP[op].slice().sort(function (x, y) {
         return (Number(x.Ordem) || 0) - (Number(y.Ordem) || 0) || (Number(x.SequenciaRecurso) || 0) - (Number(y.SequenciaRecurso) || 0);
       });
+      // operações já executadas (histórico, 5e) ficam como estão; as demais continuam depois delas
+      var lista = todos.filter(function (p) { return !congelado(p); }), fimHistorico = null;
+      todos.forEach(function (p) { var f = congelado(p) ? parse(p.Fim) : null; if (f && (!fimHistorico || f > fimHistorico)) fimHistorico = f; });
+      if (!lista.length) return;
       var primeira = null;
       for (var i = 0; i < lista.length; i++) if (parse(lista[i].Inicio)) { primeira = lista[i]; break; }
-      if (!primeira) return;
+      if (!primeira && !fimHistorico) return;
       comData++;
-      var cursor = parse(primeira.Inicio), parou = false;
+      var cursor = primeira ? parse(primeira.Inicio) : fimHistorico, parou = false;
+      if (fimHistorico && cursor < fimHistorico) cursor = fimHistorico;
       lista.forEach(function (p, i) {
         if (parou) { pendentes.push(rotulo(p)); return; }
-        if (i === 0 && parse(p.Inicio)) cursor = parse(p.Inicio);
+        if (i === 0 && parse(p.Inicio)) { cursor = parse(p.Inicio); if (fimHistorico && cursor < fimHistorico) cursor = fimHistorico; }
         var s = alocar(cursor, Math.max(1, minutosDo(p)), recursoDo(p), regraDoCartao(p), null);
         if (!s) { parou = true; pendentes.push(rotulo(p)); return; }
         p.Inicio = br(s.start);
@@ -506,6 +513,7 @@
       var t = trechos[i];
       if (!t) return;
       var r = recursoDo(p), regra = regraDoCartao(p), diasRuins = [], vistos = {}, bloqueios = [];
+      if (congelado(p)) { if (r) (porRecurso[r] = porRecurso[r] || []).push(i); return; }   // executada: é histórico, não programação
       t.forEach(function (g) {
         diasDoTrecho(g).forEach(function (dia) {
           var motivo = regra(dia.date);
@@ -529,10 +537,12 @@
       var idx = porRecurso[r];
       for (var x = 0; x < idx.length; x++) {
         for (var y = x + 1; y < idx.length; y++) {
+          var p = progs[idx[x]], q = progs[idx[y]];
+          if (congelado(p) && congelado(q)) continue;
           if (sobrepoem(trechos[idx[x]], trechos[idx[y]])) {
-            var p = progs[idx[x]], q = progs[idx[y]];
-            avisos.push('Equipamento ' + r + ': conflito entre ' + rotulo(p) + ' e ' + rotulo(q));
-            p.ConflitoPendente = q.ConflitoPendente = 'CONFLITO';
+            avisos.push('Equipamento ' + r + ': conflito entre ' + rotulo(p) + (congelado(p) ? ' (executada)' : '') + ' e ' + rotulo(q) + (congelado(q) ? ' (executada)' : ''));
+            if (!congelado(p)) p.ConflitoPendente = 'CONFLITO';
+            if (!congelado(q)) q.ConflitoPendente = 'CONFLITO';
           }
         }
       }
@@ -549,6 +559,280 @@
   window.pcpProgramarV235 = function () {
     try { if (typeof render === 'function') render('pcp_calendario'); } catch (e) { if (window.console) console.warn('MES LION: calendário', e); }
     if (typeof window.mesAbrirProjecao === 'function') window.mesAbrirProjecao();
+  };
+
+  /* ---- 5e) Histórico da programação. O calendário (V2.3.17) monta os cartões só das OPs abertas: quando a OP era
+     concluída os cartões sumiam e a programação feita se perdia. Agora cada operação com apontamento (tempo iniciado
+     ou finalizado, produção registrada) ou de OP concluída fica guardada em data.pcp_historico e continua no
+     calendário, congelada em cinza (não arrasta nem edita), no dia e horário reais dos apontamentos de tempo — ou no
+     dia do apontamento de produção (expediente do dia), quando não há horário, ou no horário programado, quando a OP
+     foi concluída sem apontamento. O histórico guarda também o horário que estava programado antes da execução. */
+  var SIT_EXEC = 'EXECUTADA', SIT_ANDAMENTO = 'EM EXECUÇÃO', SIT_CONCLUIDA = 'CONCLUÍDA';
+  var CAMPOS_CARTAO = ['OP', 'Demanda', 'Tipo', 'Produto', 'Roteiro', 'Ordem', 'SequenciaRecurso', 'Processo', 'Recurso', 'RecursoRoteiro',
+    'IdRecursoRoteiro', 'Equipamento', 'Minutos', 'TipoCelula', 'Escala', 'DataNecessidade', 'OrigemRecurso'];
+  function numero(v) { return typeof num === 'function' ? num(v) : (Number(String(v == null ? '' : v).replace(',', '.')) || 0); }
+  function congelado(p) { return !!p && typeof p === 'object' && p.Congelado === 'Sim'; }
+  function opDoCodigo(c) {
+    var cod = String(c || '');
+    return A(temDados() ? data.op : []).find(function (o) { return o && String(o.CodOP || '') === cod; }) || {};
+  }
+  function opConcluida(op) { var s = String(op && op.Status || '').toUpperCase(); return s.indexOf('CONCLU') >= 0 || s.indexOf('ENCERR') >= 0; }
+  function opCancelada(op) { return /cancel|exclu|anulad/i.test(String(op && op.Status || '')); }
+  function diaDe(x) {
+    var s = String(x || '').trim(), m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+    m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+  }
+  function horaDe(x) { var m = String(x || '').match(/^(\d{1,2}):(\d{2})/); return m ? [+m[1], +m[2]] : null; }
+  function mesmoProcesso(a, b) { var x = norm(a), y = norm(b); return !x || !y || x === y; }
+  function etapaConcluida(p, etapasDaOP) {
+    return (etapasDaOP || []).some(function (e) {
+      return numero(e.Ordem) === numero(p.Ordem) && (!e.CodEquipamento || String(e.CodEquipamento) === recursoDo(p)) &&
+        /CONCLU|FINALIZ|ENCERR|EXECUTAD/i.test(String(e.Status || ''));
+    });
+  }
+  function indices() {
+    var porOP = function (lista) { var m = {}; A(lista).forEach(function (x) { if (x && x.CodOP) (m[String(x.CodOP)] = m[String(x.CodOP)] || []).push(x); }); return m; };
+    return { tempos: porOP(data.apontamento_tempos), producao: porOP(data.producao), etapas: porOP(data.op_etapas) };
+  }
+  /* situação de execução de um cartão: null = ainda não executado */
+  function execucaoDoCartao(p, agora, ix) {
+    var op = opDoCodigo(p.OP);
+    if (opCancelada(op)) return null;
+    var cod = String(p.OP || '');
+    var sessoes = (ix.tempos[cod] || []).filter(function (a) { return mesmoProcesso(a.Processo, p.Processo); });
+    var prods = (ix.producao[cod] || []).filter(function (x) { return mesmoProcesso(x.Processo, p.Processo); });
+    var trechos = [], andamento = false, fonte = '';
+    sessoes.forEach(function (a) {
+      var dia = diaDe(a.DataApontamento), hi = horaDe(a.HoraInicio), hf = horaDe(a.HoraFim);
+      if (!dia || !hi) return;
+      var ini = new Date(dia.getTime()), fim;
+      ini.setHours(hi[0], hi[1], 0, 0);
+      if (hf) {
+        fim = new Date(dia.getTime());
+        fim.setHours(hf[0], hf[1], 0, 0);
+        if (fim <= ini) fim.setDate(fim.getDate() + 1);
+      } else if (String(a.Status || '') === 'Iniciado') {
+        andamento = true;
+        fim = new Date(Math.max(agora.getTime(), ini.getTime() + 60000));
+      } else fim = new Date(ini.getTime() + 60000);
+      trechos.push({ start: ini, end: fim });
+    });
+    if (trechos.length) fonte = 'apontamento de tempo';
+    else if (prods.length) {
+      var vistos = {};
+      prods.forEach(function (x) {
+        var dia = diaDe(x.DataApontamento);
+        if (!dia) return;
+        var k = ymd(dia);
+        if (vistos[k]) return;
+        vistos[k] = true;
+        // sem horário: o dia todo de expediente do calendário padrão (08:00–12:00 e 13:00–17:00)
+        trechos.push({ start: new Date(k + 'T08:00'), end: new Date(k + 'T12:00') });
+        trechos.push({ start: new Date(k + 'T13:00'), end: new Date(k + 'T17:00') });
+      });
+      if (trechos.length) fonte = 'apontamento de produção (dia, sem horário)';
+    }
+    var detalhes = sessoes.map(function (a) {
+      return { Tipo: 'tempo', Data: a.DataApontamento || '', HoraInicio: a.HoraInicio || '', HoraFim: a.HoraFim || '', Operador: a.Operador || '', Status: a.Status || '' };
+    }).concat(prods.map(function (x) {
+      return { Tipo: 'produção', Data: x.DataApontamento || '', Quantidade: x['Quantidade produzida'] || x.QuantidadeProduzida || '', Operador: x.Operador || '' };
+    }));
+    if (!trechos.length) {
+      if (!(opConcluida(op) || etapaConcluida(p, ix.etapas[cod]))) return null;
+      var a0 = parse(p.Inicio), b0 = parse(p.Fim);
+      if (!a0 || !b0 || b0 <= a0) return null;
+      return { situacao: SIT_CONCLUIDA, fonte: 'programação (OP concluída sem apontamento de horário)', inicio: p.Inicio, fim: p.Fim,
+        segmentos: Array.isArray(p.Segmentos) && segmentosCoerentes(p, p.Segmentos) ? p.Segmentos : [], apontamentos: detalhes };
+    }
+    trechos.sort(function (x, y) { return x.start - y.start; });
+    var juntos = [];
+    trechos.forEach(function (t) {
+      var u = juntos[juntos.length - 1];
+      if (u && t.start <= u.end) { if (t.end > u.end) u.end = t.end; } else juntos.push({ start: t.start, end: t.end });
+    });
+    return { situacao: andamento ? SIT_ANDAMENTO : SIT_EXEC, fonte: fonte, inicio: br(juntos[0].start), fim: br(juntos[juntos.length - 1].end),
+      segmentos: juntos.map(function (t) { return { Inicio: br(t.start), Fim: br(t.end) }; }), apontamentos: detalhes };
+  }
+  function nomeRecurso(c) {
+    var r = A(data.recursos).concat(A(data.cad_recursos)).find(function (x) { return x && String(x.CodEquipamento || x['Código Equipamento'] || x.Codigo || '') === String(c); }) || {};
+    return r.Equipamento || r.Descricao || c || '';
+  }
+  /* cartões de uma OP, montados como o calendário V2.3.17 monta os das OPs abertas (para OPs já concluídas) */
+  function cartoesDaOP(op, etapasDaOP) {
+    var oes = (etapasDaOP || []).slice().sort(function (a, b) { return numero(a.Ordem) - numero(b.Ordem) || numero(a.SequenciaRecurso) - numero(b.SequenciaRecurso); });
+    if (!oes.length && op.CodRoteiro) {
+      A(data.roteiro_etapas).filter(function (e) { return String(e.CodRoteiro) === String(op.CodRoteiro); })
+        .sort(function (a, b) { return numero(a.Ordem) - numero(b.Ordem); }).forEach(function (e) {
+          var rr = A(data.roteiro_recursos).filter(function (x) { return String(x.CodRoteiro) === String(op.CodRoteiro) && String(x.OrdemEtapa || x.Ordem) === String(e.Ordem); });
+          if (rr.length) rr.forEach(function (r, i) {
+            oes.push(Object.assign({}, e, { CodOP: op.CodOP, IdRecursoRoteiro: r.IdRecursoRoteiro || '', CodEquipamento: r.CodEquipamento || '', Equipamento: r.Equipamento || '',
+              Recurso: r.Equipamento || '', TempoOperacaoMin: r.TempoOperacaoMin || e.TempoOperacaoMin, SequenciaRecurso: i + 1 }));
+          });
+          else oes.push(Object.assign({}, e, { CodOP: op.CodOP, SequenciaRecurso: 1 }));
+        });
+    }
+    var rt = A(data.roteiro).find(function (r) { return String(r.CodRoteiro) === String(op.CodRoteiro); }) || {}, vistos = {}, saida = [];
+    oes.forEach(function (e, i) {
+      var rec = e.CodEquipamento || '', rid = e.IdRecursoRoteiro || '';
+      if (!rec && rid) { var rr = A(data.roteiro_recursos).find(function (x) { return String(x.IdRecursoRoteiro) === String(rid); }); if (rr) rec = rr.CodEquipamento || ''; }
+      var prod = e.ProdutoGerado || e.CodigoPI || e.CodigoProduto || op.CodigoPI || op.CodigoProduto || op.Produto || '';
+      var c = { OP: op.CodOP, Demanda: op.CodOP, Tipo: op.TipoOP || '', Produto: prod, Roteiro: op.CodRoteiro || '', Ordem: numero(e.Ordem),
+        SequenciaRecurso: numero(e.SequenciaRecurso) || i + 1, Processo: e.Processo || '', Recurso: String(rec), RecursoRoteiro: String(rec), IdRecursoRoteiro: rid,
+        Equipamento: e.Equipamento || e.Recurso || nomeRecurso(rec), Minutos: Math.max(1, numero(e.TempoPlanejado || e.TempoOperacaoMin) || 1),
+        TipoCelula: rt.Tipo || op.TipoCelula || '', Escala: rt.EscalaProducao || op.EscalaProducao || op.Escala || rt.Escala || '', DataNecessidade: op.DataNecessidade || '',
+        OrigemRecurso: rec ? 'OP_ESPELHO_ROTEIRO' : 'PENDENCIA_ROTEIRO' };
+      var k = [c.OP, c.Roteiro, c.Ordem, c.Recurso || c.IdRecursoRoteiro, c.Produto].join('|');
+      if (!vistos[k]) { vistos[k] = true; saida.push(c); }
+    });
+    return saida;
+  }
+  function atualizarHistorico() {
+    if (!temDados()) return;
+    data.pcp_programacao = A(data.pcp_programacao);
+    data.pcp_historico = A(data.pcp_historico);
+    var hist = data.pcp_historico, agora = new Date(), carimbo = agora.toLocaleString('pt-BR'), ix = indices(), porChave = {}, presentes = {};
+    hist.forEach(function (h) { if (h && h.Chave) porChave[h.Chave] = h; });
+    function registrar(p, ex) {
+      var k = chaveCartao(p), h = porChave[k];
+      if (!h) {
+        h = { Chave: k };
+        CAMPOS_CARTAO.forEach(function (c) { if (p[c] !== undefined) h[c] = p[c]; });
+        var planejado = !congelado(p);
+        h.InicioPlanejado = planejado ? (p.Inicio || '') : '';
+        h.FimPlanejado = planejado ? (p.Fim || '') : '';
+        h.SegmentosPlanejados = planejado && Array.isArray(p.Segmentos) ? p.Segmentos : [];
+        h.CongeladoEm = carimbo;
+        hist.push(h);
+        porChave[k] = h;
+      }
+      var segs = ex.segmentos || [];
+      if (h.Inicio !== ex.inicio || h.Fim !== ex.fim || h.Situacao !== ex.situacao || JSON.stringify(h.Segmentos || []) !== JSON.stringify(segs) ||
+          JSON.stringify(h.Apontamentos || []) !== JSON.stringify(ex.apontamentos || [])) {
+        h.Inicio = ex.inicio; h.Fim = ex.fim; h.Segmentos = segs; h.Situacao = ex.situacao; h.FonteHorario = ex.fonte;
+        h.Apontamentos = ex.apontamentos || []; h.AtualizadoEm = carimbo;
+      }
+      return h;
+    }
+    function aplicar(p, h) {
+      p.Inicio = h.Inicio;
+      p.Fim = h.Fim;
+      if (Array.isArray(h.Segmentos) && h.Segmentos.length) p.Segmentos = h.Segmentos; else if ('Segmentos' in p) delete p.Segmentos;
+      p.Congelado = 'Sim';
+      p.SituacaoExecucao = h.Situacao || SIT_EXEC;
+      p.FonteHorario = h.FonteHorario || '';
+      p.ConflitoPendente = '';
+    }
+    // 1) operações da programação atual que já foram apontadas (ou cuja OP foi concluída)
+    data.pcp_programacao.forEach(function (p) {
+      if (!p || typeof p !== 'object') return;
+      var k = chaveCartao(p), h = porChave[k], ex = execucaoDoCartao(p, agora, ix);
+      presentes[k] = true;
+      if (ex) aplicar(p, registrar(p, ex));
+      else if (h && h.Inicio && h.Fim) aplicar(p, h);
+      else if (congelado(p)) { delete p.Congelado; delete p.SituacaoExecucao; delete p.FonteHorario; }
+    });
+    // 2) OPs concluídas, que o calendário já não monta: o histórico vem dos apontamentos
+    A(data.op).forEach(function (op) {
+      if (!op || !op.CodOP || !opConcluida(op)) return;
+      cartoesDaOP(op, ix.etapas[String(op.CodOP)]).forEach(function (p) {
+        var k = chaveCartao(p);
+        if (presentes[k]) return;
+        var h = porChave[k], base = h ? Object.assign({}, p, { Inicio: h.Inicio, Fim: h.Fim, Segmentos: h.Segmentos, Congelado: 'Sim' }) : p;
+        var ex = execucaoDoCartao(base, agora, ix);
+        if (ex) registrar(p, ex);
+      });
+    });
+    // 3) devolve à programação as operações congeladas que a montagem do calendário deixou de fora
+    hist.forEach(function (h) {
+      if (!h || !h.Chave || presentes[h.Chave] || !h.Inicio || !h.Fim) return;
+      var p = {};
+      CAMPOS_CARTAO.forEach(function (c) { if (h[c] !== undefined) p[c] = h[c]; });
+      aplicar(p, h);
+      data.pcp_programacao.push(p);
+      presentes[h.Chave] = true;
+    });
+  }
+  window.mesAtualizarHistoricoPcp = atualizarHistorico;
+  function historicoDe(p) {
+    var k = chaveCartao(p);
+    return A(temDados() ? data.pcp_historico : []).find(function (h) { return h && h.Chave === k; }) || null;
+  }
+  function descricaoExecucao(p) {
+    var h = historicoDe(p) || {}, linhas = [rotulo(p) + ' — equipamento ' + (recursoDo(p) || '?') + (p.Equipamento ? ' ' + p.Equipamento : ''),
+      'Situação: ' + (p.SituacaoExecucao || SIT_EXEC) + (p.FonteHorario ? ' (' + p.FonteHorario + ')' : '')];
+    if (h.InicioPlanejado) linhas.push('Programado: ' + h.InicioPlanejado + ' → ' + h.FimPlanejado);
+    linhas.push('Executado: ' + (p.Inicio || '?') + ' → ' + (p.Fim || '?'));
+    A(h.Apontamentos).slice(0, 12).forEach(function (a) {
+      linhas.push(a.Tipo === 'produção' ? '  • produção apontada em ' + a.Data + (a.Quantidade ? ' (' + a.Quantidade + ')' : '') + (a.Operador ? ' — ' + a.Operador : '')
+        : '  • ' + a.Data + ' ' + a.HoraInicio + '–' + (a.HoraFim || 'em andamento') + (a.Operador ? ' — ' + a.Operador : ''));
+    });
+    linhas.push('', 'Operação executada: fica no histórico da programação e não pode ser arrastada nem editada.');
+    return linhas.join('\n');
+  }
+  function garantirEstiloHistorico() {
+    if (document.getElementById('mes-historico-style')) return;
+    var st = document.createElement('style');
+    st.id = 'mes-historico-style';
+    st.textContent = '.pcp-card-v2317.mes-congelado{filter:grayscale(1)!important;opacity:.8;cursor:help!important;border-style:dashed!important}' +
+      '.pcp-card-v2317.mes-congelado .mes-exec-badge{display:block;font-style:normal;font-size:8px;font-weight:800;letter-spacing:.03em;color:#2f3a44;background:#dfe3e8;border-radius:4px;padding:1px 4px;margin-top:3px}' +
+      '.pcp-card-v2317.mes-congelado.mes-andamento{opacity:.92}';
+    document.head.appendChild(st);
+  }
+  function marcarCongelados() {
+    if (!temDados()) return;
+    garantirEstiloHistorico();
+    var cartoes = document.querySelectorAll('.pcp-card-v2317[ondragstart]');
+    for (var i = 0; i < cartoes.length; i++) {
+      var el = cartoes[i], m = String(el.getAttribute('ondragstart') || '').match(/pcpDragV2317\(event,\s*(\d+)\)/);
+      var p = m ? A(data.pcp_programacao)[+m[1]] : null;
+      if (!congelado(p)) continue;
+      el.classList.add('mes-congelado');
+      if (p.SituacaoExecucao === SIT_ANDAMENTO) el.classList.add('mes-andamento');
+      el.setAttribute('draggable', 'false');
+      el.removeAttribute('ondragstart');
+      el.setAttribute('data-congelado', m[1]);
+      el.title = descricaoExecucao(p);
+      if (!el.querySelector('.mes-exec-badge')) {
+        var b = document.createElement('em');
+        b.className = 'mes-exec-badge';
+        b.textContent = (p.SituacaoExecucao || SIT_EXEC) + (p.FonteHorario && p.FonteHorario.indexOf('sem horário') >= 0 ? ' · sem horário' : '');
+        el.appendChild(b);
+      }
+    }
+  }
+  window.mesMarcarCongeladosPcp = marcarCongelados;
+  var calendarioAnterior = window.pcpCalendarioV2312;
+  if (typeof calendarioAnterior === 'function' && !calendarioAnterior.__mesHistorico) {
+    var calendario = function () {
+      var r = calendarioAnterior.apply(this, arguments);
+      try { marcarCongelados(); } catch (e) { if (window.console) console.warn('MES LION: histórico do calendário', e); }
+      return r;
+    };
+    calendario.__mesHistorico = true;
+    window.pcpCalendarioV2312 = calendario;
+  }
+  var editorAnterior = window.pcpEditarIntervaloV237;
+  if (typeof editorAnterior === 'function') {
+    window.pcpEditarIntervaloV237 = function (idx) {
+      var p = A(temDados() ? data.pcp_programacao : [])[idx];
+      if (congelado(p)) { alert(descricaoExecucao(p)); return; }
+      return editorAnterior.apply(this, arguments);
+    };
+  }
+  /* "Limpar datas" (V2.3.15): limpa só a programação; as operações executadas (histórico) ficam */
+  window.pcpLimparDatasV2315 = function (id) {
+    if (!temDados()) return;
+    data.pcp_programacao = A(data.pcp_programacao);
+    var rows = data.pcp_programacao.filter(function (p) { return p && !congelado(p) && (!id || p.Demanda === id); });
+    if (!rows.length) return alert('Não há operações programadas para limpar.');
+    var hist = data.pcp_programacao.filter(congelado).length;
+    if (!confirm('Limpar início/fim de ' + rows.length + ' operação(ões)? Os cartões continuarão vinculados aos equipamentos do roteiro.' +
+      (hist ? '\n\nAs ' + hist + ' operação(ões) já executadas (em cinza) ficam no histórico.' : ''))) return;
+    rows.forEach(function (p) { p.Inicio = ''; p.Fim = ''; p.Prazo = ''; p.ConflitoPendente = ''; if ('Segmentos' in p) delete p.Segmentos; });
+    saveLocal();
+    if (typeof pcpCalendarioV2312 === 'function') pcpCalendarioV2312();
   };
 })();
 

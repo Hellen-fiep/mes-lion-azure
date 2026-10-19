@@ -34,7 +34,8 @@ ok(r.returncode == 0 and os.path.exists(destino), 'GERAR_PACOTE.ps1 executado', 
 nomes = zipfile.ZipFile(destino).namelist() if os.path.exists(destino) else []
 pasta = os.path.basename(PACOTE)
 ok(all(n.startswith(pasta + '/') for n in nomes), 'tudo dentro da pasta do MES no .zip', nomes[:3])
-for obrig in ['INICIAR_MES.bat', 'index.html', 'js/app.js', 'js/mes_capacidade_carga_v1.js', 'server/MES_LION_SERVER_JSON.ps1', 'Dados/MES_LION_DATA.json', 'Dados/usuarios.json', 'Dados/auditoria.jsonl']:
+for obrig in ['INICIAR_MES.bat', 'index.html', 'js/app.js', 'js/mes_capacidade_carga_v1.js', 'server/MES_LION_SERVER_JSON.ps1', 'server/adaptador_frontend.js',
+              'server/adaptador_passaporte.js', 'Dados/MES_LION_DATA.json', 'Dados/usuarios.json', 'Dados/auditoria.jsonl']:
     ok(f'{pasta}/{obrig}' in nomes, f'pacote contém {obrig}', '')
 ok(not any('/Dados/backups/' in n or '/Dados/logs/' in n or n.endswith('.tmp') or n.endswith('servidor_em_execucao.json') for n in nomes),
    'sem backups, logs, temporários e trava do servidor', [n for n in nomes if 'backups' in n or 'logs' in n][:5])

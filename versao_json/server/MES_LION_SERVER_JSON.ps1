@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $VersaoMes = 'MES LION 1.0 JSON'
-$VersaoServidor = '1.0.2 (2026-10-19)'
+$VersaoServidor = '1.1.0 (2026-10-19)'
 $EhPS7 = $PSVersionTable.PSVersion.Major -ge 6
 $EhWindows = ($env:OS -eq 'Windows_NT')
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -926,21 +926,33 @@ function Ler-Multipart($req) {
 }
 
 # =====================================================================================================
-# Adaptador do frontend: server\adaptador_frontend.js, incluido no fim do index.html ao entregar a pagina (os arquivos
-# do frontend nao mudam). Lido na inicializacao; a pasta server nunca e entregue pelo servidor.
+# Adaptadores do frontend: arquivos server\*.js da lista abaixo, incluidos nessa ordem no fim do index.html ao entregar
+# a pagina, cada um no seu <script> (os arquivos do frontend nao mudam). Lidos na inicializacao; a pasta server nunca e
+# entregue pelo servidor.
+#   adaptador_frontend.js   - ACV/LCC, textos, capacidade, calendario (dias disponiveis e historico), carga, MRP
+#   adaptador_passaporte.js - passaporte da bateria e biblioteca de fatores ambientais (GWP100)
 # =====================================================================================================
-$ArqAdaptador = Join-Path $PSScriptRoot 'adaptador_frontend.js'
-$script:AdaptadorJs = ''
+$ArquivosAdaptador = @(
+    @{ Arquivo = 'adaptador_frontend.js'; Id = 'mes-adaptador-json' },
+    @{ Arquivo = 'adaptador_passaporte.js'; Id = 'mes-adaptador-passaporte' }
+)
+$script:AdaptadorHtml = ''
 function Carregar-Adaptador {
-    if (-not [System.IO.File]::Exists($ArqAdaptador)) { throw ('arquivo server\adaptador_frontend.js não encontrado em ' + $PSScriptRoot + '. Extraia novamente o pacote completo do MES (todas as pastas).') }
-    $js = $Utf8.GetString((Sem-Bom ([System.IO.File]::ReadAllBytes($ArqAdaptador))))
-    # o texto vai dentro de <script>...</script>: um "</script" no meio encerraria o bloco antes da hora
-    $script:AdaptadorJs = [regex]::Replace($js, '</(script)', '<\/$1', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $tags = New-Object System.Text.StringBuilder
+    foreach ($a in $ArquivosAdaptador) {
+        $arq = Join-Path $PSScriptRoot $a.Arquivo
+        if (-not [System.IO.File]::Exists($arq)) { throw ('arquivo server\' + $a.Arquivo + ' não encontrado em ' + $PSScriptRoot + '. Extraia novamente o pacote completo do MES (todas as pastas).') }
+        $js = $Utf8.GetString((Sem-Bom ([System.IO.File]::ReadAllBytes($arq))))
+        # o texto vai dentro de <script>...</script>: um "</script" no meio encerraria o bloco antes da hora
+        $js = [regex]::Replace($js, '</(script)', '<\/$1', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        [void]$tags.Append('<script id="' + $a.Id + '">' + $js + '</script>')
+    }
+    $script:AdaptadorHtml = $tags.ToString()
 }
 function Entregar-Index([byte[]]$html) {
     $t = $Utf8.GetString((Sem-Bom $html))
     $t = $t.Replace('<title>MES LION 1.0 PGSQL</title>', '<title>MES LION 1.0 JSON</title>')
-    $tag = '<script id="mes-adaptador-json">' + $script:AdaptadorJs + '</script>'
+    $tag = $script:AdaptadorHtml
     $i = $t.LastIndexOf('</body>', [StringComparison]::OrdinalIgnoreCase)
     if ($i -ge 0) { $t = $t.Substring(0, $i) + $tag + $t.Substring($i) } else { $t = $t + $tag }
     return , $Utf8.GetBytes($t)

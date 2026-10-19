@@ -88,12 +88,15 @@ r = anon.get(BASE + '/')
 ok(r.status_code == 200 and 'mes-adaptador-json' in r.text and 'mesGarantirColecoes' in r.text and '<title>MES LION 1.0 JSON</title>' in r.text
    and r.text.index('mes-adaptador-json') > r.text.index('mes_capacidade_carga_v1.js'), 'index.html com o adaptador incluído depois de todos os scripts', r.status_code)
 ok('__mesCorrecaoCalendarioJson' in r.text and 'pcpValidarConflitosV2315' in r.text, 'adaptador com as correções do calendário (server/adaptador_frontend.js)', '')
+ok('mes-adaptador-passaporte' in r.text and '__mesPassaporteUnificado' in r.text and '__mesBibliotecaGWP100' in r.text
+   and r.text.index('mes-adaptador-passaporte') > r.text.index('mes-adaptador-json'),
+   'adaptador do passaporte e da biblioteca de fatores incluído depois do adaptador do frontend (server/adaptador_passaporte.js)', '')
 ok('mes_plataforma_azure.js' not in r.text, 'index.html sem o adaptador do Azure', '')
 r = anon.get(BASE + '/js/app.js?v=1.0.21'); ok(r.status_code == 200 and r.headers.get('content-type', '').startswith('application/javascript'), 'js/app.js servido (application/javascript)', r.headers.get('content-type'))
 r = anon.get(BASE + '/assets/logo-mes.jpg'); ok(r.status_code == 200 and r.headers.get('content-type') == 'image/jpeg', 'imagem servida', r.status_code)
 r = anon.get(BASE + '/arquivo-inexistente.txt'); ok(r.status_code == 404 and r.text == 'Não encontrado', 'arquivo inexistente -> 404 "Não encontrado"', f'{r.status_code} {r.text}')
 for rota in ['/Dados/MES_LION_DATA.json', '/Dados/usuarios.json', '/dados/usuarios.json', '/Dados./usuarios.json', '/Dados%20/usuarios.json',
-             '/server/MES_LION_SERVER_JSON.ps1', '/server/adaptador_frontend.js', '/js/../server/adaptador_frontend.js', '/js/../Dados/usuarios.json',
+             '/server/MES_LION_SERVER_JSON.ps1', '/server/adaptador_frontend.js', '/server/adaptador_passaporte.js', '/js/../server/adaptador_frontend.js', '/js/../Dados/usuarios.json',
              '/%2e%2e/etc/passwd', '/INICIAR_MES.bat', '/Dados/auditoria.jsonl']:
     r = anon.get(BASE + rota)
     ok(r.status_code == 404, f'arquivo privado bloqueado: {rota}', r.status_code)

@@ -9,6 +9,9 @@ Teste no navegador do Calendário de Produção da versão JSON (correções do 
   - Plano de Produção > "Projetar sequência pelas datas já informadas" só em dias e horários de trabalho, inclusive
     com sábado liberado só para uma linha de produção;
   - Programação > "Recalcular programação" abre a sugestão de programação sem erro; "Limpar datas" limpa os trechos;
+  - histórico da programação: operações executadas (apontamento de tempo ou de produção, OP concluída) continuam no
+    calendário congeladas em cinza, no dia e horário dos apontamentos, gravadas em data.pcp_historico e mantidas
+    depois de "Limpar datas", de "Projetar sequência" e de recarregar a página (F5);
   - PCP > Carga × capacidade: a carga é a soma das horas programadas no período (datas no formato do PCP, com vírgula);
   - MRP > "Abrir OPs" abre a tela de Ordens de Produção.
 
@@ -68,7 +71,7 @@ def problemas_programacao(cartoes):
     (é o caso de operação curta, igual com ou sem trechos)."""
     erros, programados = [], 0
     for p in cartoes:
-        if not p.get('Inicio'): continue
+        if not p.get('Inicio') or congelado(p): continue   # operação executada (histórico): vale o horário dos apontamentos
         programados += 1
         nome = f"{p.get('OP')} etapa {p.get('Ordem')} rec {p.get('RecursoRoteiro') or p.get('Recurso')}"
         a, b = dt(p.get('Inicio')), dt(p.get('Fim'))
@@ -89,6 +92,14 @@ def problemas_programacao(cartoes):
         if abs(soma - float(str(p.get('Minutos') or 0).replace(',', '.'))) > 1:
             erros.append(f'{nome}: trechos somam {soma:.0f} min, operação tem {p.get("Minutos")} min')
     return erros, programados
+
+
+def congelado(p):
+    return p.get('Congelado') == 'Sim'
+
+
+def chave(p):
+    return (str(p.get('OP') or p.get('Demanda') or ''), str(p.get('Ordem') or ''), str(p.get('RecursoRoteiro') or p.get('Recurso') or p.get('IdRecursoRoteiro') or ''), str(p.get('Produto') or ''))
 
 
 def carga_esperada(cartoes, lo, hi):
@@ -181,6 +192,21 @@ async def main():
         ok(len(cel) == 31 and all(v['botoes'] == 1 for v in cel.values()), 'um botão "Editar dia" em cada dia de outubro/2026', cel)
         ok(cel[17]['faixa'] == 'INDISPONIVEL · Sabado' and cel[18]['faixa'] == 'INDISPONIVEL · Domingo' and cel[12]['faixa'] == 'INDISPONIVEL · Nossa Senhora Aparecida'
            and cel[16]['faixa'] == '', 'sábados, domingos e feriado marcados como indisponíveis', {k: cel[k]['faixa'] for k in (12, 16, 17, 18)})
+
+        # ---------------------------------------------------------------- histórico: OP concluída continua no calendário
+        d, sim = await esperar_servidor(lambda d: any(str(h.get('OP', '')).startswith('OP20260812094138') for h in d.get('pcp_historico') or []))
+        hist = [h for h in d.get('pcp_historico') or [] if str(h.get('OP', '')).startswith('OP20260812094138')]
+        ok(sim and hist and all(h.get('Situacao') in ('EXECUTADA', 'CONCLUÍDA') and str(h.get('Inicio', '')).startswith('12/08/2026') and h.get('Segmentos') for h in hist),
+           f'OP concluída: {len(hist)} operações no histórico da programação (servidor), no dia dos apontamentos de produção',
+           [(h.get('OP'), h.get('Processo'), h.get('Situacao'), h.get('Inicio')) for h in hist][:4])
+        exec_inicio = sorted(chave(p) + (p.get('Inicio'), p.get('Fim')) for p in d.get('pcp_programacao') or [] if congelado(p))
+        await abrir_mes('2026-08')
+        ago = await page.evaluate("""() => [...document.querySelectorAll('section.pcp-day-v2314:not(.outside)')].map(c => [c.querySelector('header b').textContent,
+            c.querySelectorAll('.pcp-card-v2317').length, c.querySelectorAll('.pcp-card-v2317.mes-congelado').length, c.querySelectorAll('.pcp-card-v2317.mes-congelado[ondragstart]').length]).filter(x => x[1])""")
+        hist_agosto = sum(x[2] for x in ago)
+        ok(ago and all(x[1] == x[2] and x[3] == 0 for x in ago) and hist_agosto == len(hist),
+           'calendário de agosto: operações da OP concluída em cinza, sem arrastar', ago)
+        await abrir_mes('2026-10')
 
         # ---------------------------------------------------------------- Editar dia (clique real)
         await clique_humano(celula(17).locator('.mes-edit-day'))
@@ -297,7 +323,7 @@ async def main():
 
         # cartão em tempo corrido sobre o sábado 24/10 (como a projeção antiga do Plano fazia)
         alvo = await page.evaluate("""() => {
-            const ps = data.pcp_programacao.filter(p => Number(p.Minutos) <= 600).sort((a, b) => Number(a.Minutos) - Number(b.Minutos));
+            const ps = data.pcp_programacao.filter(p => p.Congelado !== 'Sim' && Number(p.Minutos) <= 600).sort((a, b) => Number(a.Minutos) - Number(b.Minutos));
             const p = ps[0]; const i = data.pcp_programacao.indexOf(p);
             const fim = new Date(2026, 9, 24, 8, 0); fim.setMinutes(fim.getMinutes() + Number(p.Minutos));
             const f = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear() + ', ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
@@ -319,7 +345,7 @@ async def main():
         # cartão programado antes da correção (sem trechos gravados) volta a ter trechos quando segue o calendário
         rec = await page.evaluate("""() => {
             if (typeof mesAlocarNoCalendario !== 'function') return {fim: '', trechos: ['mesAlocarNoCalendario ausente']};
-            const p = data.pcp_programacao.find(x => Number(x.Minutos) >= 120 && Number(x.Minutos) <= 900 && x.Inicio !== '24/10/2026, 08:00');
+            const p = data.pcp_programacao.find(x => x.Congelado !== 'Sim' && Number(x.Minutos) >= 120 && Number(x.Minutos) <= 900 && x.Inicio !== '24/10/2026, 08:00');
             const s = mesAlocarNoCalendario('23/10/2026, 16:00', Number(p.Minutos), p.RecursoRoteiro || p.Recurso, 'Todas');
             const f = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear() + ', ' + String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
             p.Inicio = f(s.start); p.Fim = f(s.end); delete p.Segmentos; saveLocal();
@@ -401,9 +427,56 @@ async def main():
         await page.wait_for_timeout(500)
         await clique_humano(page.locator('button:has-text("Limpar datas")'))
         await page.wait_for_timeout(1000)
-        d, sim = await esperar_servidor(lambda d: not any(p.get('Inicio') or p.get('Segmentos') for p in d.get('pcp_programacao') or [])
+        d, sim = await esperar_servidor(lambda d: not any(p.get('Inicio') or p.get('Segmentos') for p in d.get('pcp_programacao') or [] if not congelado(p))
                                         and not ((d.get('meta') or {}).get('pcpSegmentos') or {}))
         ok(sim, '"Limpar datas" limpa início, fim e trechos (cartões e data.meta.pcpSegmentos)', '')
+        exec_depois = sorted(chave(p) + (p.get('Inicio'), p.get('Fim')) for p in d.get('pcp_programacao') or [] if congelado(p))
+        ok(exec_depois and exec_depois == exec_inicio, f'"Limpar datas" mantém as {len(exec_depois)} operações executadas (histórico)', (len(exec_depois), len(exec_inicio)))
+
+        # ---------------------------------------------------------------- histórico: apontamento de tempo numa OP aberta
+        info = await page.evaluate("""() => {
+            const ab = data.pcp_programacao.filter(p => p.Congelado !== 'Sim' && p.OP && !String(p.OP).startsWith('OP20260812094138'));
+            const a = ab[0], b = ab.find(p => p.OP !== a.OP || p.Processo !== a.Processo);
+            data.apontamento_tempos = data.apontamento_tempos || [];
+            data.apontamento_tempos.push({IdApontamentoTempo: 'AT-TESTE-1', CodOP: a.OP, Processo: a.Processo, Operador: 'teste', DataApontamento: '19/10/2026', HoraInicio: '09:00', HoraFim: '11:30', Status: 'Finalizado'});
+            data.apontamento_tempos.push({IdApontamentoTempo: 'AT-TESTE-2', CodOP: b.OP, Processo: b.Processo, Operador: 'teste', DataApontamento: '19/10/2026', HoraInicio: '13:00', HoraFim: '', Status: 'Iniciado'});
+            saveLocal();
+            return {a: [a.OP, a.Processo], b: [b.OP, b.Processo]};
+        }""")
+        await abrir_mes('2026-10')
+        cel = await page.evaluate("""() => [...document.querySelectorAll('section.pcp-day-v2314:not(.outside)')].filter(c => c.querySelector('header b').textContent === '19')
+            .map(c => [...c.querySelectorAll('.pcp-card-v2317.mes-congelado')].map(e => (e.querySelector('.mes-exec-badge')?.textContent || '') + ' | ' + (e.getAttribute('draggable') || '')))[0] || []""")
+        prog = await page.evaluate("""(x) => data.pcp_programacao.filter(p => p.Congelado === 'Sim' && ((p.OP === x.a[0] && p.Processo === x.a[1]) || (p.OP === x.b[0] && p.Processo === x.b[1])))
+            .map(p => ({op: p.OP, proc: p.Processo, sit: p.SituacaoExecucao, ini: p.Inicio, fim: p.Fim}))""", info)
+        exe = [p for p in prog if p['op'] == info['a'][0] and p['proc'] == info['a'][1]]
+        anda = [p for p in prog if p['op'] == info['b'][0] and p['proc'] == info['b'][1]]
+        ok(exe and all(p['sit'] == 'EXECUTADA' and p['ini'] == '19/10/2026, 09:00' and p['fim'] == '19/10/2026, 11:30' for p in exe),
+           'apontamento de tempo finalizado: operação congelada no horário real (19/10 09:00–11:30, EXECUTADA)', prog)
+        ok(anda and all(p['sit'] == 'EM EXECUÇÃO' and p['ini'] == '19/10/2026, 13:00' for p in anda),
+           'apontamento de tempo iniciado: operação congelada desde 19/10 13:00 (EM EXECUÇÃO)', prog)
+        ok(len(cel) == len(prog) and all(c.endswith('| false') for c in cel) and sum('EXECUTADA' in c for c in cel) == len(exe),
+           'calendário de outubro: operações apontadas em cinza no dia 19, sem arrastar, com a situação', cel)
+        dialogos.clear()
+        await page.evaluate("document.querySelector('.pcp-card-v2317.mes-congelado').dispatchEvent(new MouseEvent('dblclick', {bubbles: true}))")
+        await page.wait_for_timeout(500)
+        msg = dialogos[-1] if dialogos else ''
+        ok('Executado:' in msg and 'histórico' in msg, 'duplo clique em operação executada mostra o histórico (não abre a edição)', msg[:300])
+        d, sim = await esperar_servidor(lambda d: any(h.get('Inicio') == '19/10/2026, 09:00' and h.get('Situacao') == 'EXECUTADA' and h.get('OP') == info['a'][0]
+                                                      for h in d.get('pcp_historico') or []))
+        ok(sim, 'histórico da operação apontada gravado no servidor (data.pcp_historico, com o horário programado antes)',
+           [(h.get('OP'), h.get('Processo'), h.get('Situacao'), h.get('Inicio')) for h in (d.get('pcp_historico') or [])][-4:])
+
+        # F5: o histórico continua (inclusive o das OPs concluídas, que o calendário não monta mais)
+        await page.reload(wait_until='load')
+        await page.wait_for_selector('#app:not(.hidden)', timeout=120000)
+        await page.wait_for_timeout(1500)
+        await page.evaluate("render('pcp_calendario')")
+        await page.wait_for_timeout(400)
+        await abrir_mes('2026-08')
+        ago = await page.evaluate("document.querySelectorAll('.pcp-card-v2317.mes-congelado').length")
+        await abrir_mes('2026-10')
+        out = await page.evaluate("document.querySelectorAll('.pcp-card-v2317.mes-congelado').length")
+        ok(ago == hist_agosto and out == len(prog), 'depois de recarregar (F5): operações executadas continuam em cinza (agosto e outubro)', (ago, hist_agosto, out, len(prog)))
 
         # ---------------------------------------------------------------- MRP > Abrir OPs
         await page.evaluate("render('mrp')")
