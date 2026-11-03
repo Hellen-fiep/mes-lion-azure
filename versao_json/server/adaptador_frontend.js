@@ -586,6 +586,14 @@
   }
   function horaDe(x) { var m = String(x || '').match(/^(\d{1,2}):(\d{2})/); return m ? [+m[1], +m[2]] : null; }
   function mesmoProcesso(a, b) { var x = norm(a), y = norm(b); return !x || !y || x === y; }
+  /* 1.4.0 — apontamento de tempo por máquina: casa com o cartão da mesma máquina (IdRecursoRoteiro, ou código do
+     equipamento na mesma etapa); registros anteriores, sem máquina, continuam casando pelo processo */
+  function sessaoDoCartao(a, p) {
+    var rid = String(a.IdRecursoRoteiro || ''), eq = String(a.CodEquipamento || '');
+    if (rid && p.IdRecursoRoteiro) return rid === String(p.IdRecursoRoteiro);
+    if (eq) return eq === recursoDo(p) && (!a.OrdemEtapa || numero(a.OrdemEtapa) === numero(p.Ordem));
+    return mesmoProcesso(a.Processo, p.Processo);
+  }
   function etapaConcluida(p, etapasDaOP) {
     return (etapasDaOP || []).some(function (e) {
       return numero(e.Ordem) === numero(p.Ordem) && (!e.CodEquipamento || String(e.CodEquipamento) === recursoDo(p)) &&
@@ -601,8 +609,11 @@
     var op = opDoCodigo(p.OP);
     if (opCancelada(op)) return null;
     var cod = String(p.OP || '');
-    var sessoes = (ix.tempos[cod] || []).filter(function (a) { return mesmoProcesso(a.Processo, p.Processo); });
-    var prods = (ix.producao[cod] || []).filter(function (x) { return mesmoProcesso(x.Processo, p.Processo); });
+    var sessoes = (ix.tempos[cod] || []).filter(function (a) { return sessaoDoCartao(a, p); });
+    /* produção sem horário só vale como "dia inteiro" quando a OP não usa o apontamento por máquina (1.4.0): com tempo
+       por máquina, a máquina sem apontamento próprio não é dada como executada */
+    var porMaquina = (ix.tempos[cod] || []).some(function (a) { return a.IdRecursoRoteiro || a.CodEquipamento; });
+    var prods = porMaquina ? [] : (ix.producao[cod] || []).filter(function (x) { return mesmoProcesso(x.Processo, p.Processo); });
     var trechos = [], andamento = false, fonte = '';
     sessoes.forEach(function (a) {
       var dia = diaDe(a.DataApontamento), hi = horaDe(a.HoraInicio), hf = horaDe(a.HoraFim);
@@ -610,9 +621,11 @@
       var ini = new Date(dia.getTime()), fim;
       ini.setHours(hi[0], hi[1], 0, 0);
       if (hf) {
-        fim = new Date(dia.getTime());
+        var diaFim = diaDe(a.DataFim) || dia;
+        fim = new Date(diaFim.getTime());
         fim.setHours(hf[0], hf[1], 0, 0);
-        if (fim <= ini) fim.setDate(fim.getDate() + 1);
+        if (fim <= ini && !a.DataFim) fim.setDate(fim.getDate() + 1);
+        if (fim <= ini) fim = new Date(ini.getTime() + 60000);
       } else if (String(a.Status || '') === 'Iniciado') {
         andamento = true;
         fim = new Date(Math.max(agora.getTime(), ini.getTime() + 60000));
@@ -635,7 +648,8 @@
       if (trechos.length) fonte = 'apontamento de produção (dia, sem horário)';
     }
     var detalhes = sessoes.map(function (a) {
-      return { Tipo: 'tempo', Data: a.DataApontamento || '', HoraInicio: a.HoraInicio || '', HoraFim: a.HoraFim || '', Operador: a.Operador || '', Status: a.Status || '' };
+      return { Tipo: 'tempo', Data: a.DataApontamento || '', HoraInicio: a.HoraInicio || '', HoraFim: a.HoraFim || '', Operador: a.Operador || '', Status: a.Status || '',
+        Maquina: a.Equipamento || a.CodEquipamento || '' };
     }).concat(prods.map(function (x) {
       return { Tipo: 'produção', Data: x.DataApontamento || '', Quantidade: x['Quantidade produzida'] || x.QuantidadeProduzida || '', Operador: x.Operador || '' };
     }));

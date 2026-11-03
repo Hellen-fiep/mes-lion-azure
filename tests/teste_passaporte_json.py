@@ -26,7 +26,7 @@ CHROME = os.environ.get('MES_CHROME') or ('/opt/pw-browsers/chromium-1194/chrome
 DADOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dados_teste', 'MES_LION_DATA_TESTE.json')
 falhas, total = [], 0
 
-OP_FECHADA = 'OP20260812094138-PA'   # OP de PA concluída (2 células produzidas)
+OP_FECHADA = 'OP20260812094138-PA'   # OP de PA concluída (1 célula apontada; a QtdProduzida "2" era o apontamento contado duas vezes, corrigido na 1.4.0)
 OP_ABERTA = 'OP20260812101715-PA'    # OP de PA planejada
 # tabela GWP100 (print do usuário): código no MES -> (trecho do dataset, fator com 2 casas)
 TABELA = {'MP0016': ('Electrolyte, for Li-ion battery', 3.68), 'MP0015': ('Battery separator', 35.81), 'MP0013': ('Aluminium collector foil', 15.51),
@@ -97,6 +97,13 @@ def xlsx_como_excel(abas, caminho):
                    + ''.join(f'<si><t>{esc(t)}</t></si>' for t in textos) + '</sst>')
 
 
+def celulas_produzidas():
+    """células da OP fechada = soma dos apontamentos de produção (regra da 1.4.0: QtdProduzida = soma dos apontamentos)"""
+    d = json.load(open(DADOS, encoding='utf-8'))
+    d = d.get('data', d)
+    return sum(float(str(r.get('Quantidade produzida') or r.get('QuantidadeProduzida') or 0).replace(',', '.')) for r in d['producao'] if r.get('CodOP') == OP_FECHADA)
+
+
 def massas_esperadas():
     d = json.load(open(DADOS, encoding='utf-8'))
     d = d.get('data', d)
@@ -111,6 +118,7 @@ def massas_esperadas():
 
 async def main():
     por_material = massas_esperadas()
+    CELULAS = celulas_produzidas()
     util_lote = sum(v for k, v in por_material.items() if k not in ('MP0001', 'MP0002'))
     async with async_playwright() as pw:
         b = await pw.chromium.launch(executable_path=CHROME, args=['--no-sandbox']) if CHROME else await pw.chromium.launch()
@@ -219,15 +227,15 @@ async def main():
         cel = await ev(f"(() => {{ const s = document.querySelector('#bpu_massas tfoot tr td:nth-child(4)'); return [...document.querySelectorAll('#bpu_massas tbody tr')].map(t => [t.querySelector('input').dataset.cod, t.querySelector('input').checked]); }})()")
         fora = sorted(c for c, m in cel if not m)
         ok(fora == ['MP0001', 'MP0002'] and len(cel) == len(por_material), 'massas: solventes (NMP e água) fora da composição publicada; os demais materiais marcados', cel)
-        ok(perto(br(vals['BP_DP10_Weight']), util_lote / 2, 1e-3), f'peso da célula = massa útil por célula ({util_lote / 2:.4f} kg, sem os solventes)', vals['BP_DP10_Weight'])
+        ok(perto(br(vals['BP_DP10_Weight']), util_lote / CELULAS, 1e-3), f'peso da célula = massa útil por célula ({util_lote / CELULAS:.4f} kg, sem os solventes)', vals['BP_DP10_Weight'])
         familia = await ev(f"Number(calcSustFamiliaOPV33('{OP_FECHADA}', false, {{}}).CO2eqTotal)")
-        ok(perto(br(vals['BP_CO2_PorCelula']), familia / 2) and perto(br(vals['EU_C1_PegadaCarbono']), familia / 2 / 0.3368888721072, 3e-3)
-           and perto(br(vals['BP_CO2_PorKg']), familia / 2 / (util_lote / 2), 3e-3) and 'família de OPs' in vals['BP_ACV_Fonte'],
-           f'pegada de carbono puxada da ACV da família de OPs ({familia / 2:.1f} kg CO₂eq por célula, por kWh e por kg)', vals)
+        ok(perto(br(vals['BP_CO2_PorCelula']), familia / CELULAS) and perto(br(vals['EU_C1_PegadaCarbono']), familia / CELULAS / 0.3368888721072, 3e-3)
+           and perto(br(vals['BP_CO2_PorKg']), familia / CELULAS / (util_lote / CELULAS), 3e-3) and 'família de OPs' in vals['BP_ACV_Fonte'],
+           f'pegada de carbono puxada da ACV da família de OPs ({familia / CELULAS:.1f} kg CO₂eq por célula, por kWh e por kg)', vals)
         ok('Solvente' not in vals['BP_DP45_DetailedComposition'] and 'Cátodo:' in vals['BP_DP45_DetailedComposition'], 'composição detalhada montada com as massas úteis', vals['BP_DP45_DetailedComposition'])
         await page.uncheck('#bpu_massas input.bpu-massa[data-cod="MP0018"]'); await page.wait_for_timeout(700)
         peso2, comp2 = await campo('BP_DP10_Weight'), await campo('BP_DP45_DetailedComposition')
-        ok(perto(br(peso2), (util_lote - por_material['MP0018']) / 2, 1e-3) and 'Case' not in comp2, 'material desmarcado sai do peso e da composição publicada', (peso2, comp2))
+        ok(perto(br(peso2), (util_lote - por_material['MP0018']) / CELULAS, 1e-3) and 'Case' not in comp2, 'material desmarcado sai do peso e da composição publicada', (peso2, comp2))
         await preencher('BP_DP04_ManufacturerAddress', 'Rua do Teste, 123 — Curitiba/PR')
         await marcar('BP_DP04_ManufacturerAddress', False)
         await preencher('BP_DP48_DismantlingInformation', 'Desmontar com ferramenta isolada')
@@ -253,7 +261,7 @@ async def main():
         # ---------------------------------------------------------------- 4) painel do cliente e página publicada (QR)
         html = await ev(f"standaloneDashboardHTML(data.bp.find(b => b.BatteryPassportID === '{id_val}'))")
         pizza = re.search(r'bpu-pizza-c[^>]*><span>([^<]+)<', html)
-        ok('Composição mássica da célula' in html and pizza and perto(br(pizza.group(1)), (util_lote - por_material['MP0018']) / 2, 1e-3)
+        ok('Composição mássica da célula' in html and pizza and perto(br(pizza.group(1)), (util_lote - por_material['MP0018']) / CELULAS, 1e-3)
            and 'Solvente NMP' not in html and 'Solvente água' not in html and 'MP0018' not in html,
            'painel do cliente: composição mássica só com as massas úteis (sem solventes e sem o material desmarcado)', pizza.group(1) if pizza else None)
         ok('100 Ah' in html and '3,6 V' in html and 'Ametista' in html and 'Pegada de carbono' in html and vals['BP_CO2_PorCelula'] in html,
@@ -311,7 +319,7 @@ async def main():
         ok(opcoes[:1] == [''] and f"AICV:{aicv['id']}" in opcoes and 'FAMILIA' in opcoes, 'fontes da ACV para escolher: automático, AICV da OP e ACV da família', opcoes)
         await page.select_option('#bp_fonte_acv', 'FAMILIA'); await page.wait_for_timeout(700)
         co2f = await campo('BP_CO2_PorCelula')
-        ok(perto(br(co2f), familia / 2, 3e-3), 'escolhendo a ACV da família, os valores de carbono mudam', co2f)
+        ok(perto(br(co2f), familia / CELULAS, 3e-3), 'escolhendo a ACV da família, os valores de carbono mudam', co2f)
         # alteração à mão é mantida
         await preencher('BP_DP11_Capacity', '105')
         resposta['confirm'] = False

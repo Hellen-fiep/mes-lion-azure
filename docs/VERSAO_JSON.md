@@ -65,12 +65,22 @@ Diferenças em relação ao servidor PowerShell original (todas corrigem problem
 * Estado inválido/incompleto é recusado com 400 sem alterar o arquivo; `DELETE /api/storage/MES_LION_DATA` nunca apaga
   o estado; não permite ficar sem administrador ativo.
 
-## Adaptadores do frontend (`server/adaptador_frontend.js` e `server/adaptador_passaporte.js`)
+## Adaptadores do frontend (`server/adaptador_*.js`)
 
-O servidor lê os dois arquivos ao iniciar (a falta de um deles impede a abertura, com mensagem) e os inclui no fim do
-`index.html` ao entregar a página, nessa ordem e cada um no seu `<script>` (`mes-adaptador-json` e
-`mes-adaptador-passaporte`), depois de todos os scripts originais — os arquivos do frontend continuam idênticos aos
-originais e a pasta `server/` nunca é servida. Correções de `adaptador_frontend.js`:
+O servidor lê os arquivos da lista `$ArquivosAdaptador` ao iniciar (a falta de um deles impede a abertura, com
+mensagem) e os inclui no fim do `index.html` ao entregar a página, nessa ordem e cada um no seu `<script>`, depois de
+todos os scripts originais — os arquivos do frontend continuam idênticos aos originais e a pasta `server/` nunca é
+servida:
+
+| Arquivo | `<script id>` | Versão |
+|---|---|---|
+| `adaptador_frontend.js` | `mes-adaptador-json` | 1.0.0 (calendário por máquina na 1.4.0) |
+| `adaptador_passaporte.js` | `mes-adaptador-passaporte` | 1.1.0 |
+| `adaptador_codigos_estoque.js` | `mes-adaptador-codigos-estoque` | 1.2.0 / 1.3.0 |
+| `adaptador_estoque_ajustes.js` | `mes-adaptador-estoque-ajustes` | 1.3.0 |
+| `adaptador_apontamento_pi.js` | `mes-adaptador-apontamento-pi` | 1.4.0 |
+
+Correções de `adaptador_frontend.js`:
 
 1. **ACV/LCC**: recria as coleções que os módulos V1.0.19–V1.1.3 criam ao carregar a página e que se perdiam quando o
    estado do servidor substituía `data` (erro ao abrir ACV/LCC, salvar ICV, iniciar apontamento).
@@ -147,6 +157,58 @@ Correções de `adaptador_passaporte.js`:
     * `bpDashboardBody` (painel do cliente, HTML exportado e QR), `reportBPObj` (PDF interno com a coluna
       "No painel", massas úteis e fora, ACVs disponíveis) e `showBP` (tela interna).
 
+Correções e funções de `adaptador_codigos_estoque.js` e `adaptador_estoque_ajustes.js` (1.2.0 e 1.3.0, recebidos no
+pacote do usuário): códigos de barras Code 128 (material, entrada/lote, OP, passaporte) e leitura no apontamento;
+localização dos lotes, Locais de Estoque e Inventário; Estoque / Rastreabilidade com saldo por entrada (entradas −
+consumos apontados − perdas do lote − ajustes), reservado e em produção; Recursos / Máquinas em tela única; PIs
+filhos pelos processos; estoque mínimo; MRP com o mesmo saldo; Ajuste de Estoque; Kanban do calendário de
+caracterização.
+
+`adaptador_apontamento_pi.js` (1.4.0):
+
+13. **Motivos de perda** (`data.perdas_motivos`, tela `perdas_motivos`): categoria + motivo com chave sem acento,
+    maiúscula e pontuação (duplicado bloqueado; parecido — Levenshtein ≤ 2 — pede confirmação); motivo usado só é
+    desativado; renomear oferece atualizar as perdas; importação agrupando os textos digitados (com padronização
+    opcional). No Registro de Perdas `#loss_tipo` e `#loss_motivo` viram listas do cadastro (o `registrarPerdaOP`
+    original lê os mesmos ids; o código do motivo vai em `IdMotivo`).
+14. **Tempo por máquina** (`data.apontamento_tempos` com `OrdemEtapa`, `IdRecursoRoteiro`, `CodEquipamento`,
+    `DataFim`, `DuracaoMin`, `Origem`): iniciar/finalizar e intervalo informado por máquina de `op_etapas`; uma sessão
+    aberta por OP+máquina; sem sobreposição na mesma OP+máquina. A soma finalizada vai para `op_etapas.TempoReal`
+    da máquina (`TempoRealOrigem = APONTAMENTO_TEMPO_MAQUINA`), já usado por `opEnergyKWhV4014`, `opMODCostV4014`
+    e `auditCostFamilyV4014` no lugar do planejado. Os controles por processo da V1.0.14 saem da tela. O histórico do
+    calendário (`adaptador_frontend.js`, 5e) casa a sessão pela máquina e lê `DataFim`; com tempo por máquina, a
+    produção sem horário não congela as outras máquinas.
+15. **Fluxo de PIs no roteiro** (`data.roteiro_pi_entradas`: `CodRoteiro`, `OrdemEtapa` consumidora, `CodigoPI`,
+    máquina opcional): quadro por operação e quadro de diagnóstico no editor (`renderRoteiroArvoreV382`); o PI deve
+    ser produzido em operação anterior (ou vir de fora do roteiro); sugestão pela cadeia de papéis da V1.0.11
+    (`v1011Role`/`v1011PrevRoles`); `copiarRoteiroV386` copia o fluxo; `excluirOperacaoV382` remove as entradas da
+    operação. Estrutura do Produto: fluxo em níveis pelo roteiro.
+16. **PI como insumo da OP**: OP aberta recebe a linha `PI intermediário` da etapa (`OrigemDados = FLUXO_PI_ROTEIRO`,
+    `OPOrigemPI` = OP da família que produz o PI, `QtdPlanejada` = planejado dela), aproveitando linhas da cadeia
+    V1.0.11; linhas de genealogia da OP de PA do mesmo PI ganham `FluxoPISubstituido = Sim` (ficam fora do consumo,
+    da baixa automática e da lista de perdas, sem mudar os índices). Linhas de PI seguem fora de massa, custo de
+    materiais, MRP e ACV.
+17. **Consumo de PI** (`data.op_pi_consumos`, `Origem = APONTAMENTO_PI`): pela etiqueta/lote, retirado − devolvido =
+    `QuantidadeConsumida`; perda na etapa vira registro em `perdas` com `OrigemPerda = DENTRO_DO_CONSUMO` ligado ao
+    consumo; saldo insuficiente bloqueado; estorno (`Status = CANCELADO`). Consumo de outra família / PI isolado grava
+    `CodOPPA` = OP de PA consumidora e herda custo/CO₂ pela regra da V40.3; da própria família, `CodOPPA` vazio (sem
+    herança). O consumo planejado na geração da OP (V40.3/V1.0.11) do mesmo lote é substituído pelo apontado.
+18. **Origem da perda** no Registro de Perdas (material e PI): `DENTRO_DO_CONSUMO` (limitada ao consumo apontado
+    ainda sem perda) ou `RETIRADA_ADICIONAL` (baixa a etiqueta/lote do PI ou o lote do material via `EntradaMaterial`).
+19. **Etiquetas** (`data.etiquetas_producao`, `ETnnnnnn`): no apontamento de produção (`un`: por unidade, aglutinada
+    ou N por etiqueta; outras UMs: única); soma = quantidade apontada; impressão Code 128; cancelamento sem movimento;
+    excluir o apontamento cancela as etiquetas (bloqueado com movimento).
+20. **Estoque de PI e PA** (aba `pipa` do Estoque e rota `estoque_pi_pa`): livro por lote (`LPI-…` = lote da V40.3,
+    `LPA-…`): produção − consumos − perdas por retirada − baixas (`data.estoque_pi_ajustes`); etiquetas recebem os
+    movimentos sem etiqueta em ordem; reservado pelas OPs abertas; rastreio para trás/frente; conferência.
+    `v403ConsumidoLote` passa a usar esse livro.
+21. **Regras de cálculo**: `QtdProduzida` = soma de `producao` (o lançamento V3.x somava o último apontamento duas
+    vezes; correção na primeira abertura registrada em `data.meta.mes140CorrecoesQtd`); `v102MaterialLossCost` e
+    `perdasMateriaisOPV391` não somam perda dentro do consumo nem perda de PI da própria família; perda de PI externo
+    por retirada herda custo/CO₂ fechados da origem; baixa automática do PI da família no encerramento da OP
+    consumidora (`BAIXA_AUTOMATICA_ENCERRAMENTO`; uma vez para as OPs já encerradas: `BAIXA_LEGADO_1.4.0`,
+    `data.meta.mes140BaixaLegadoPI`).
+
 ## Testes (CI: job `versao-json`, Windows PowerShell 5.1 real)
 
 | Suíte | O que confere |
@@ -158,6 +220,7 @@ Correções de `adaptador_passaporte.js`:
 | `tests/teste_capacidade_json.py` | Capacidade e Carga V1 no navegador: botões no Cadastro de Recursos, capacidade e histórico gravados no servidor, relatório após F5 |
 | `tests/teste_calendario_json.py` | Calendário de Produção: tela estável, "Editar dia" com clique real do mouse (liberar sábado, bloquear dia útil), sugestão de programação e "Projetar sequência" sem operações em dias indisponíveis, trechos gravados e mantidos após F5, programação da versão anterior, "Validar conflitos", "Recalcular programação", "Limpar datas", carga do relatório Carga × capacidade, MRP > "Abrir OPs", histórico (OP concluída e apontamentos de tempo em cinza, gravados no servidor, mantidos após "Limpar datas" e F5) |
 | `tests/teste_passaporte_json.py` | biblioteca GWP100 e banco LCI sem repetição; versão ativa nos cálculos; template `.xlsx` com exemplo e importação (`.xlsx` do Excel, CSV, erros, `.xls` binário); passaporte: campos únicos sem obrigatório, marcas "painel", dados puxados da OP (estrutura, ACV da família e AICV, massas úteis), rascunho com OP aberta, painel do cliente e HTML do QR, alteração à mão mantida, passaporte antigo, F5, PDF interno |
+| `tests/teste_apontamento_pi_json.py` | 1.4.0: correção da QtdProduzida e baixa única das famílias encerradas; motivos de perda (duplicado, parecido, lista, importação); fluxo de PIs no roteiro (validação, sugestão, cópia) e Estrutura em níveis; PI nas OPs abertas; etiquetas (kg, N por etiqueta, por unidade, aglutinada, impressão); consumo de PI pela etiqueta, perda na etapa, saldo insuficiente, estorno; origem da perda (PI e material com lote); custo/CO₂ sem dupla contagem; PI isolado com custo herdado; tempo por máquina (intervalo, iniciar/finalizar, sobreposição, energia) e calendário por máquina; baixa automática no encerramento; estoque PI/PA (saldos, etiquetas, rastreio, baixa/estorno, cancelamento, conferência); exclusão bloqueada; servidor e F5 |
 | `tests/teste_gerar_pacote_json.py` | `.zip` para outros usuários com dados, sem backups/logs |
 | `tests/teste_redefinir_senha_json.py` | `REDEFINIR_SENHA.bat`: nova senha PBKDF2, reativação, senhas que não conferem |
 

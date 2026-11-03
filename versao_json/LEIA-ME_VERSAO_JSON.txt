@@ -18,7 +18,7 @@ ATUALIZAR UMA INSTALAÇÃO QUE JÁ ESTÁ EM USO (SEM PERDER OS DADOS)
 1. Feche a janela do servidor do MES.
 2. Copie a pasta server deste pacote por cima da pasta server da instalação atual (substitua os arquivos; a pasta
    tem o servidor MES_LION_SERVER_JSON.ps1 e os arquivos adaptador_frontend.js, adaptador_passaporte.js,
-   adaptador_codigos_estoque.js e adaptador_estoque_ajustes.js).
+   adaptador_codigos_estoque.js, adaptador_estoque_ajustes.js e adaptador_apontamento_pi.js).
    NÃO copie a pasta Dados: é nela que estão os seus dados, usuários e histórico. Não extraia o .zip inteiro
    por cima da pasta atual.
 3. Abra de novo com INICIAR_MES.bat. No modo rede basta atualizar o computador que abre o servidor; nos outros,
@@ -253,6 +253,100 @@ CALENDÁRIO DE TESTES DE CARACTERIZAÇÃO — KANBAN (VERSÃO 1.3.0)
   sem arrastar: o arrasto é só na tela de Caracterização, e soltar algo de teste no calendário de produção não move
   nenhuma operação de OP.
 
+MOTIVOS DE PERDA (VERSÃO 1.4.0)
+- Novo item no menu Produção: "Motivos de Perda" (também pelos botões "+ Novo motivo" e "Gerenciar motivos" no
+  Registro de Perdas). Cada motivo pertence a uma categoria: as cinco de sempre (Refugo de processo, Perda de
+  material, Retrabalho, Não conformidade, Teste / amostra) e as que você criar.
+- Sem duplicidade: "Contaminação", "contaminacao" e "CONTAMINAÇÃO." são o mesmo motivo (o MES ignora acento,
+  maiúscula, pontuação e espaços). Motivo parecido (até 2 letras de diferença) pede confirmação antes de gravar.
+- No Registro de Perdas, Categoria e Motivo viraram listas suspensas; se a categoria tem motivos cadastrados, o
+  motivo é obrigatório.
+- Motivo já usado em perdas não é excluído: desative-o (sai da lista e as perdas antigas continuam com ele). Ao
+  renomear, o MES oferece atualizar o texto das perdas já registradas.
+- "Importar motivos já digitados nas perdas" agrupa os textos digitados à mão (sem diferença de acento/maiúscula),
+  cadastra os novos e, se marcado, padroniza o texto das perdas antigas. "Carregar sugestões padrão" cadastra uma
+  lista inicial por categoria.
+- Ficam em MES_LION_DATA.json, na lista perdas_motivos.
+
+TEMPO POR MÁQUINA (VERSÃO 1.4.0)
+- Apontamento de Produção, quadro "Tempo por máquina": escolha a etapa/máquina (cada equipamento da operação no
+  roteiro) e use "Iniciar na máquina" / "Finalizar na máquina" (hora atual, ou a data/hora informada nos campos) ou
+  "Registrar intervalo informado" (início e fim; pode passar da meia-noite).
+- Cada máquina tem um apontamento aberto por vez na OP e os intervalos da mesma máquina na mesma OP não se
+  sobrepõem. Máquina já em andamento em outra OP pede confirmação (ex.: estufa com duas OPs).
+- O tempo real finalizado da máquina (soma dos intervalos) substitui o tempo planejado DAQUELA máquina na energia
+  (potência × tempo) e na mão de obra (tempo × pessoas × taxa) de custos, ACV e passaporte. Máquina sem apontamento
+  continua com o tempo planejado do roteiro; excluir o apontamento volta ao planejado.
+- O resumo mostra, por máquina: planejado, real, diferença e o apontamento em andamento.
+- Apontamentos de tempo antigos (sem máquina) aparecem como "sem máquina": use "Informar máquina" para que passem a
+  contar no tempo real.
+- Calendário de Produção (histórico): fica congelada a operação da máquina apontada; as outras máquinas da etapa
+  continuam programáveis.
+- Encerrar a OP com apontamento de tempo em andamento pede confirmação.
+
+PIs QUE ENTRAM EM CADA OPERAÇÃO (VERSÃO 1.4.0)
+- Roteiro: cada operação ganhou o quadro "PIs que entram nesta operação". Escolha o PI (produzido em uma operação
+  anterior do roteiro, ou um PI de fora do roteiro — estoque / PI isolado) e, se quiser, a máquina onde ele entra.
+  Ex.: o slurry PI0001 (operação 10) entra na deposição (operação 30). O MES não deixa um PI entrar antes da
+  operação que o produz nem uma operação consumir o próprio produto.
+- O quadro "Fluxo dos PIs neste roteiro" mostra, para cada PI, onde é produzido e em que operação entra, e acusa o PI
+  que não entra em nenhuma operação. "Sugerir fluxo automaticamente" monta a cadeia slurry → depositado → cortado →
+  jelly roll → PA pelos nomes/tipos de PI (PI com outro nome recebe o PI da operação anterior). "Copiar roteiro"
+  leva o fluxo junto.
+- Estrutura do Produto: novo quadro "Fluxo de produção em níveis (pelo roteiro)": PA ← PI ← PI … até as matérias-
+  primas, com a operação de cada nível. O cadastro PA → PI continua o mesmo.
+- OPs: a OP aberta da operação recebe o PI como insumo (linha "PI intermediário" da etapa), ligado à OP da mesma
+  família que produz o PI e com a quantidade planejada dela. Vale para as OPs abertas que já existem ("Aplicar às
+  OPs abertas deste roteiro", ou sozinho ao abrir a OP) e para as próximas. As linhas "Integração / genealogia" da
+  OP de PA continuam só como genealogia, sem virar consumo em dobro.
+- Apontamento de Produção, quadro "Consumo de PIs": bipe a etiqueta do PI (ou escolha a etiqueta / lote) e informe
+  retirado, devolvido e quanto se perdeu na etapa. Retirado − devolvido = consumo (sai do estoque de PI); a perda
+  informada é parte desse consumo (fica como perda do PI na etapa, com motivo, sem baixar o estoque de novo).
+  Saldo insuficiente é bloqueado. "Estornar" devolve o saldo (e pode excluir a perda vinculada).
+- Registro de Perdas: escolhendo um PI ou um material, informe a origem da quantidade perdida — "Dentro do consumo
+  já apontado nesta OP" (não baixa o estoque de novo e não pode passar do consumo apontado) ou "Retirada adicional
+  do estoque" (baixa o saldo da etiqueta/lote do PI, ou do lote do material).
+
+ETIQUETAS DE PI E PA (VERSÃO 1.4.0)
+- Apontamento de Produção: o botão virou "Registrar produção e etiquetas". Produto em "un": o MES pergunta se gera
+  uma etiqueta por unidade, aglutina tudo em uma etiqueta ou usa N unidades por etiqueta (a última leva o resto;
+  ex.: 35 un com 10 por etiqueta = 10 + 10 + 10 + 5). Outras unidades (kg, m...): uma etiqueta com a quantidade.
+- A soma das etiquetas é sempre a quantidade apontada. Código ET000001 (Code 128), com produto, quantidade, OP,
+  lote, apontamento, data, processo, operador e roteiro; impressão 100 × 70 mm.
+- "Imprimir etiquetas" logo depois do apontamento, "Etiqueta" no histórico da OP e "Etiqueta da última produção"
+  imprimem as etiquetas do apontamento. Produção anterior à 1.4.0: "Gerar etiquetas" (na OP ou no Estoque PI / PA).
+- Excluir um apontamento de produção cancela as etiquetas dele (bloqueado se alguma já foi consumida ou baixada).
+
+ESTOQUE DE PI E PA PRONTOS (VERSÃO 1.4.0)
+- Materiais > "Estoque PI / PA" (ou a aba "PI e PA prontos (etiquetas)" do Estoque / Rastreabilidade).
+- Saldo do lote (produção de uma OP) = produção apontada − consumos pelas etapas seguintes − perdas por retirada
+  adicional − baixas. Reservado = PI planejado nas OPs abertas que consomem o lote e ainda não consumido;
+  disponível = saldo − reservado (negativo = vai faltar PI para a OP consumidora).
+- Visões: por produto, por lote (OP), por etiqueta (imprimir, rastrear, baixa, cancelar etiqueta sem movimento),
+  movimentos (com estorno) e conferência das regras. A leitura da etiqueta abre o rastreio: para trás (insumos da
+  OP — lotes de MP e etiquetas/lotes de PI, em todos os níveis) e para frente (OPs que consumiram, perdas, baixas e
+  passaporte do PA).
+- Baixa: saída sem OP consumidora (expedição, amostra, descarte, ajuste de inventário), com estorno. Não muda custo
+  (o custo já está na OP que produziu o item).
+- Ficam em MES_LION_DATA.json: etiquetas_producao, op_pi_consumos (consumos de PI) e estoque_pi_ajustes (baixas).
+
+REGRAS DE CÁLCULO REVISTAS (VERSÃO 1.4.0)
+- Quantidade produzida da OP = soma dos apontamentos de produção. O lançamento antigo contava o último apontamento
+  duas vezes no campo QtdProduzida da OP (ex.: 0,8956 kg apontados apareciam como 1,7912), número usado no lote de
+  PI, no custo fechado e na ACV. Na primeira abertura da 1.4.0 as OPs com esse erro são corrigidas (lista em
+  Estoque PI / PA > Conferência das regras). Custo fechado calculado com a quantidade em dobro aparece na
+  conferência com o botão "Refazer" (o fechamento não é refeito sozinho).
+- PI consumido dentro da família (mesma OP de PA) não transfere custo nem CO₂: eles já estão na OP que produziu o
+  PI. PI de outra família / PI isolado herda o custo e o CO₂ fechados da OP de origem, na proporção consumida.
+- Perda "dentro do consumo apontado" (material ou PI) não soma custo nem CO₂ de novo: já estão no consumo. Perda por
+  retirada adicional soma, exceto a de PI produzido na própria família (o custo já está na OP de origem). Perdas de
+  material registradas antes da 1.4.0 (sem origem) continuam como antes.
+- Baixa automática no encerramento: encerrada a OP que consome um PI da própria família sem nenhum consumo desse PI
+  apontado, o MES baixa a quantidade planejada do lote da OP que produziu o PI (no máximo o saldo; sem quantidade
+  planejada, o saldo do lote). Consumo apontado, mesmo parcial, prevalece. Pode ser desligada na Conferência das
+  regras. As OPs encerradas antes da 1.4.0 recebem essa baixa uma única vez (senão o lote de PI apareceria com saldo
+  cheio mesmo já tendo virado PA).
+
 ONDE FICAM OS DADOS (pasta Dados)
 - MES_LION_DATA.json ............. todos os dados do MES
 - usuarios.json .................. usuários (senhas protegidas por hash, nunca em texto)
@@ -296,6 +390,16 @@ O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
 - Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
 
 VERSÕES DO SERVIDOR JSON
+- 1.4.0 (03/11/2026): apontamento de tempo por máquina (tempo real na energia e na mão de obra da máquina);
+  roteiro com os PIs que entram em cada operação e fluxo em níveis na Estrutura do Produto; PI como insumo da OP,
+  consumido pela etiqueta/lote no apontamento e com perda na etapa; origem da perda (dentro do consumo / retirada
+  adicional); etiquetas de PI/PA no apontamento (por unidade, aglutinada ou N por etiqueta); Estoque de PI e PA
+  prontos (saldos, etiquetas, baixa, rastreio, conferência); cadastro de motivos de perda; QtdProduzida = soma dos
+  apontamentos (corrige o dobro do último apontamento), perdas sem dupla contagem e baixa automática do PI no
+  encerramento. Arquivo novo: server\adaptador_apontamento_pi.js; alterados: server\adaptador_frontend.js
+  (histórico do calendário por máquina) e server\MES_LION_SERVER_JSON.ps1 (inclui o arquivo novo). Os dados da
+  versão 1.3.0 são lidos sem conversão; na primeira abertura o MES corrige a QtdProduzida em dobro e baixa uma vez
+  os PIs das famílias já encerradas.
 - 1.3.0 (27/10/2026): estoque mínimo no cadastro de materiais (alerta no MRP, no Plano de Produção e no Estoque);
   MRP com o mesmo saldo físico do Estoque / Rastreabilidade e "Excel Compras" corrigido; Ajuste de Estoque (saída
   manual, baixa técnica sem OP com motivo e projeto, entrada manual, correção do saldo geral, estorno e histórico);

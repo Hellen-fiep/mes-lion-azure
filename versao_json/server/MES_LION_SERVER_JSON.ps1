@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $VersaoMes = 'MES LION 1.0 JSON'
-$VersaoServidor = '1.2.0 (2026-10-22)'
+$VersaoServidor = '1.4.0 (2026-11-03)'
 $EhPS7 = $PSVersionTable.PSVersion.Major -ge 6
 $EhWindows = ($env:OS -eq 'Windows_NT')
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -937,12 +937,16 @@ function Ler-Multipart($req) {
 #   adaptador_estoque_ajustes.js - estoque minimo (materiais, MRP, Plano de Producao), Ajuste de Estoque (entrada/saida
 #                             manual, baixa tecnica sem OP, correcao do saldo geral), MRP com o saldo do Estoque e
 #                             Kanban arrastavel no Calendario de Testes de Caracterizacao
+#   adaptador_apontamento_pi.js - apontamento de tempo por maquina, PIs que entram em cada operacao do roteiro (insumo
+#                             da OP, consumo e perda pela etiqueta/lote), etiquetas de PI/PA, estoque de PI e PA,
+#                             motivos de perda cadastrados e regras de calculo sem dupla contagem
 # =====================================================================================================
 $ArquivosAdaptador = @(
     @{ Arquivo = 'adaptador_frontend.js'; Id = 'mes-adaptador-json' },
     @{ Arquivo = 'adaptador_passaporte.js'; Id = 'mes-adaptador-passaporte' },
     @{ Arquivo = 'adaptador_codigos_estoque.js'; Id = 'mes-adaptador-codigos-estoque' },
-    @{ Arquivo = 'adaptador_estoque_ajustes.js'; Id = 'mes-adaptador-estoque-ajustes' }
+    @{ Arquivo = 'adaptador_estoque_ajustes.js'; Id = 'mes-adaptador-estoque-ajustes' },
+    @{ Arquivo = 'adaptador_apontamento_pi.js'; Id = 'mes-adaptador-apontamento-pi' }
 )
 $script:AdaptadorHtml = ''
 function Carregar-Adaptador {
