@@ -561,10 +561,10 @@ jobs:
           }
           if ($erros -gt 0) { exit 1 }
           # adaptadores do frontend (incluídos pelo servidor no index.html)
-          foreach ($f in @('adaptador_frontend.js', 'adaptador_passaporte.js')) {
-            node --check "out/json/MES_LION_1_0_JSON/server/$f"
+          foreach ($f in Get-ChildItem out/json/MES_LION_1_0_JSON/server/*.js) {
+            node --check $f.FullName
             if ($LASTEXITCODE -ne 0) { exit 1 }
-            Write-Host "sintaxe ok (JavaScript): $f"
+            Write-Host "sintaxe ok (JavaScript): $($f.Name)"
           }
 
       - name: Contrato HTTP (servidor no Windows PowerShell 5.1)

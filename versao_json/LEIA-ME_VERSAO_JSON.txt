@@ -17,7 +17,8 @@ COMO ABRIR
 ATUALIZAR UMA INSTALAÇÃO QUE JÁ ESTÁ EM USO (SEM PERDER OS DADOS)
 1. Feche a janela do servidor do MES.
 2. Copie a pasta server deste pacote por cima da pasta server da instalação atual (substitua os arquivos; a pasta
-   tem o servidor MES_LION_SERVER_JSON.ps1 e os arquivos adaptador_frontend.js e adaptador_passaporte.js).
+   tem o servidor MES_LION_SERVER_JSON.ps1 e os arquivos adaptador_frontend.js, adaptador_passaporte.js,
+   adaptador_codigos_estoque.js e adaptador_estoque_ajustes.js).
    NÃO copie a pasta Dados: é nela que estão os seus dados, usuários e histórico. Não extraia o .zip inteiro
    por cima da pasta atual.
 3. Abra de novo com INICIAR_MES.bat. No modo rede basta atualizar o computador que abre o servidor; nos outros,
@@ -111,6 +112,147 @@ BIBLIOTECA DE FATORES AMBIENTAIS (ACV)
   salvo pelo Excel, CSV e o .xls do template anterior. O .xls do Excel 97-2003 não é lido: salve como "Pasta de
   Trabalho do Excel (.xlsx)" ou CSV.
 
+CÓDIGOS DE BARRAS (VERSÃO 1.2.0)
+- Leitor: qualquer leitor USB ou Bluetooth em modo teclado (o leitor "digita" o código e tecla Enter). Os campos de
+  leitura têm fundo verde e ficam com o cursor pronto; dá para digitar o código e teclar Enter. Bipe curto = achou;
+  bipe grave = não achou ou material errado.
+- O código de barras é gerado pelo próprio MES (Code 128), sem internet. Os códigos novos que o MES imprime: o da OP
+  (o próprio número da OP), o do material e o da entrada/lote (ex.: EN0012) na etiqueta do lote.
+- Materiais: campo "Código de barras do fornecedor" (mais de um: separe com ";"). Em material novo, a opção "Usar o
+  código de barras como código do material" (marcada) faz o MES assumir o código de barras como código do material.
+  O MES não deixa o mesmo código de barras em dois materiais.
+- Entrada de Materiais: "Ler código de barras do material". Código já cadastrado: o material é selecionado e só falta
+  preencher quantidade, custo, lote e localização. Código novo: abre o cadastro rápido (descrição, UM, categoria) e
+  o material é criado com o código de barras como código; ou o código pode ser associado a um material já
+  cadastrado (ex.: MP0003). Etiqueta GS1 com (01) e (10) também é lida (GTIN e lote).
+- Etiquetas de materiais: agora com o código de barras do material e o da entrada/lote, e a localização.
+- Ordens de Produção: o código de barras da OP é gravado quando a OP é gerada (campo CodigoBarras = número da OP),
+  aparece no detalhe da OP e sai impresso no "PDF OP Produção", com o código de barras de cada material na tabela de
+  materiais de cada etapa.
+- Apontamento Produção: "Buscar OP pelo código de barras" no topo (leu, a OP abre). No bloco "Consumo de materiais e
+  lotes", "Ler código do material ou da etiqueta do lote": o material lido é escolhido na lista (se não estiver
+  previsto na OP, o MES avisa e não seleciona); o aviso mostra os lotes com saldo e a localização. Lendo a etiqueta do
+  lote (EN....) o lote também já vem selecionado. Depois é só informar a quantidade e "Registrar consumo do lote",
+  como antes.
+- Passaporte da Bateria: "Consultar passaporte pela etiqueta" (QR Code ou código de barras). Aceita o endereço do QR,
+  o ID do passaporte (BP0001), o identificador global, o lote ou a OP. A etiqueta 90 × 150 mm passa a ter também o
+  código de barras do ID do passaporte.
+
+ESTOQUE, LOCALIZAÇÃO E INVENTÁRIO (VERSÃO 1.2.0)
+- Novos itens no menu Materiais: Estoque / Rastreabilidade, Locais de Estoque e Inventário de Estoque.
+- Entrada de Materiais: campo "Localização física" (texto livre, ex.: Almox A · Rua 2 · Prateleira 3; sugere os locais
+  já usados). Também na edição da entrada. Cada mudança de local fica no histórico do lote.
+- Locais de Estoque: os lotes com saldo agrupados por localização (com o total por unidade), busca, leitura da
+  etiqueta para saber onde o material está e o botão "Mudar local".
+- Estoque / Rastreabilidade: três visões.
+  "Por material": saldo físico, RESERVADO para OPs abertas (planejado e ainda não consumido), EM PRODUÇÃO (já
+  retirado para OPs que ainda não foram encerradas), CONSUMIDO (OPs encerradas), perdas e DISPONÍVEL (saldo físico −
+  reservado); "FALTA PARA AS OPs" quando o disponível fica negativo.
+  "Por entrada / lote / localização": a tabela anterior com localização e o consumo separado em OPs encerradas e
+  abertas. "Reservas por OP": o que cada OP aberta ainda vai consumir.
+  O saldo do lote usa o consumo apontado no lote (Apontamento > Consumo de materiais e lotes); para OPs antigas sem
+  esse apontamento vale a regra anterior. Consumos de OPs excluídas não entram no saldo (o MES mostra quantos são).
+  O Excel de saldos ganhou as abas de saldo por material e de reservas.
+- Inventário de Estoque:
+  1. "Baixar template do inventário (.xlsx)": uma linha por entrada/lote com saldo e custo unitário atuais.
+  2. Preencha as colunas amarelas: SaldoContado, CustoUnitarioNovo, LocalizacaoNova (em branco = não muda). Lote
+     que existe e não está no MES: linha nova sem Entrada, com CodigoMaterial, Lote, SaldoContado e custo.
+  3. "Validar planilha": mostra linha a linha o que muda (saldo, diferença, custo, local) e os erros. Com erro, nada
+     é gravado. Se houve consumo depois do download, a diferença contada é aplicada sobre o saldo atual (com aviso).
+  4. "Aplicar inventário": o MES cria antes uma cópia de segurança (Dados\backups) e grava. O consumo já apontado não
+     muda: a quantidade da entrada é corrigida para o saldo ficar igual à contagem; o custo novo vale para os
+     próximos consumos (os já apontados mantêm o custo gravado).
+  5. Histórico: cada inventário guarda os valores anteriores de cada lote. "Reverter" volta saldos, custos e locais
+     ao que eram (e remove os lotes criados por ele, se não tiverem consumo); "Reaplicar" aplica de novo um inventário
+     revertido; "Excluir" apaga o registro (um inventário aplicado é revertido antes); "Detalhes" e "Excel" mostram o
+     antes/depois de cada lote.
+
+RECURSOS / MÁQUINAS (VERSÃO 1.2.0)
+- "Recursos / Custos" e "Cadastro de Recursos" viraram uma tela só: Engenharia > Recursos / Máquinas. Cada linha é um
+  equipamento num processo, com identificação, tempo de operação, pessoas, potência, taxas de energia e MOD, custos
+  (calculados na hora), patrimônio, NF, valor, depreciação e capacidade. Continuam na tela: Recalcular custos, PDF
+  Custos + Gráficos, PDF Recursos, Capacidades das máquinas, Carga × capacidade e Documentos da máquina.
+- As duas listas de dados continuam existindo (PCP, roteiro, OP, custos e capacidade leem uma ou outra); a tela
+  grava as duas juntas. Na primeira abertura, o recurso que só existia numa das listas ganha a linha na outra.
+- "Verificação do cadastro" aponta: mesmo código em equipamentos diferentes (na base de exemplo: 6 = Arbin × Glove
+  box; 12 = Solda Tabs × Soldagem tampa), linhas repetidas do mesmo equipamento/processo e potências diferentes
+  para o mesmo equipamento. O MES não troca códigos sozinho: os roteiros e OPs que já usam o código não mudam.
+- Ao editar um equipamento usado em vários processos, a opção "Levar as alterações..." leva para os outros
+  processos só os campos alterados naquela edição.
+
+ESTRUTURA DO PRODUTO — PIs POR PROCESSO (VERSÃO 1.2.0)
+- "Gerar PIs do PA (escolher processos)" abre a lista dos processos cadastrados (Engenharia > Processos), na ordem do
+  fluxo (mistura, coating, calandragem, corte, montagem; cátodo antes do ânodo), cada um com flag, tipo de PI
+  sugerido (editável), unidade e descrição. Só os marcados geram PI. Processo que já tem PI aparece marcado e
+  bloqueado, com o código do PI existente. O PI gerado guarda o processo de origem.
+- Ao salvar um PA novo, essa lista abre sozinha (dá para cancelar e gerar depois).
+
+ESTOQUE MÍNIMO (VERSÃO 1.3.0)
+- Materiais: campo "Estoque mínimo", na unidade de medida do material (aceita vírgula; em branco = sem mínimo).
+  Também aparece como coluna na lista de materiais.
+- É só alerta: não muda a necessidade líquida do MRP, as reservas nem as OPs.
+- Onde aparece:
+  MRP: colunas "Estoque mínimo" e "Alerta de mínimo" (ABAIXO DO MÍNIMO = o saldo físico já está abaixo; FICARÁ
+  ABAIXO APÓS AS OPs SELECIONADAS = saldo − necessidade bruta fica abaixo do mínimo) e um quadro no topo com os
+  materiais em alerta. A "Memória de cálculo" mostra o mínimo.
+  Plano de Produção: o mesmo quadro no topo (ABAIXO DO MÍNIMO ou FICARÁ ABAIXO COM AS OPs ABERTAS, comparando o
+  disponível = saldo físico − reservado para as OPs abertas).
+  Estoque / Rastreabilidade (visão por material): coluna "Estoque mínimo" e o indicador "Abaixo do estoque mínimo".
+
+MRP COM O MESMO SALDO DO ESTOQUE (VERSÃO 1.3.0)
+- O estoque do MRP passa a ser o saldo físico do Estoque / Rastreabilidade: entradas − consumos apontados − perdas
+  do lote − saídas manuais e baixas técnicas. Antes o MRP fazia só entradas − consumos e contava também os consumos
+  de OPs que foram excluídas.
+- Por isso o estoque do MRP sobe nos materiais que tinham consumo em OPs excluídas (na base atual: consumos das OPs
+  OP20260803111127-* e OP20260810123324-*). O MRP mostra quantos consumos de OPs excluídas ficaram fora, como o
+  Estoque já fazia. Se esse material realmente saiu do estoque, registre a saída no Ajuste de Estoque.
+- A regra do MRP não mudou: OPs selecionáveis, necessidade bruta = materiais dimensionados nas OPs, necessidade
+  líquida = bruta − estoque.
+- "Excel Compras" do MRP volta a gerar o arquivo (antes dava "Exportador Excel não disponível").
+
+AJUSTE DE ESTOQUE (VERSÃO 1.3.0)
+- Novo item no menu Materiais (também pelos botões nas telas Estoque / Rastreabilidade e Inventário de Estoque).
+- Escolha o material (lista ou leitura do código / código de barras + Enter). A tela mostra o saldo geral, o
+  reservado, o disponível, o estoque mínimo e os lotes com saldo (do mais antigo para o mais novo).
+- Tipos de ajuste:
+  Saída manual: informe a quantidade; o MES distribui pelos lotes mais antigos e você pode mudar quanto sai de cada
+  lote. A soma tem que fechar com a quantidade e nenhum lote fica negativo.
+  Baixa técnica (sem OP): para material que não será consumido em nenhuma OP (resto de bobina, amostra para
+  caracterização, avaria, vencido, contaminado, devolução ao fornecedor). Projeto obrigatório: o custo fica
+  apropriado ao projeto. OP de referência e teste de caracterização são opcionais e servem só para
+  rastreabilidade: a baixa NÃO entra no consumo da OP, no custo da OP nem no ACV.
+  Entrada manual (novo lote): cria uma entrada nova (fornecedor AJUSTE DE ESTOQUE, origem AJUSTE_MANUAL) com
+  quantidade, custo unitário, lote e localização; aparece em Entradas, Estoque, Locais e Inventário.
+  Corrigir saldo geral: informe o saldo contado do material (todos os lotes). Menor que o do sistema: a diferença
+  sai dos lotes (mais antigos primeiro, editável). Maior: entra como lote novo.
+- Motivo obrigatório (lista); com o motivo "Outro", a observação é obrigatória.
+- Antes de gravar o MES pede confirmação e cria uma cópia de segurança (Dados\backups).
+- Histórico: filtro por texto, tipo e situação; "Detalhes" mostra os lotes, o saldo antes/depois e o estorno;
+  "Exportar Excel" gera uma linha por lote.
+- Estornar: pede o motivo. Saída / baixa estornada: a quantidade volta para os lotes de origem. Entrada estornada:
+  o lote criado é removido; se esse lote já teve consumo, perda, outro ajuste ou inventário, o estorno é bloqueado.
+  O ajuste estornado continua no histórico.
+- Resto de bobina que ainda serve não precisa de baixa: registre a saída só da parte que foi usada/perdida (ou
+  corrija o saldo geral) e, se quiser, mude o local do lote para um local de sobras em Locais de Estoque.
+- O saldo considera os ajustes em todas as telas: Estoque / Rastreabilidade (coluna "Saídas manuais / baixas
+  técnicas"), Locais de Estoque, Inventário de Estoque e MRP. O Inventário aplicado depois de um ajuste respeita a
+  saída já registrada; um inventário cujo lote novo foi movimentado por ajuste só é revertido depois de estornar o
+  ajuste.
+- Os ajustes ficam em MES_LION_DATA.json, na lista estoque_ajustes.
+
+CALENDÁRIO DE TESTES DE CARACTERIZAÇÃO — KANBAN (VERSÃO 1.3.0)
+- PCP > Calendário > Linha de Produção "Testes de Caracterização": os testes viraram cartões Kanban (cor por
+  equipamento, descrição, equipamento, horário e calendários compartilhados), como nos demais calendários.
+- Arraste o cartão para outro dia: o teste muda de data e mantém o horário. O MES não deixa soltar em dia
+  indisponível (sábado, domingo, feriado ou dia bloqueado em "Editar dia" para a linha Caracterização), quando o
+  equipamento está indisponível (PCP > Capacidade) ou quando o mesmo equipamento já tem outro teste no mesmo horário.
+  Os dias indisponíveis aparecem hachurados com a marca INDISPONÍVEL. Cada mudança de data fica gravada no teste
+  (HistoricoDatas).
+- Duplo clique continua abrindo a edição e o compartilhamento; "Criar cartão Kanban" continua igual.
+- No Calendário de Produção (todas as linhas ou uma linha de células) os testes compartilhados continuam aparecendo
+  sem arrastar: o arrasto é só na tela de Caracterização, e soltar algo de teste no calendário de produção não move
+  nenhuma operação de OP.
+
 ONDE FICAM OS DADOS (pasta Dados)
 - MES_LION_DATA.json ............. todos os dados do MES
 - usuarios.json .................. usuários (senhas protegidas por hash, nunca em texto)
@@ -154,6 +296,17 @@ O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
 - Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
 
 VERSÕES DO SERVIDOR JSON
+- 1.3.0 (27/10/2026): estoque mínimo no cadastro de materiais (alerta no MRP, no Plano de Produção e no Estoque);
+  MRP com o mesmo saldo físico do Estoque / Rastreabilidade e "Excel Compras" corrigido; Ajuste de Estoque (saída
+  manual, baixa técnica sem OP com motivo e projeto, entrada manual, correção do saldo geral, estorno e histórico);
+  Calendário de Testes de Caracterização com cartões Kanban arrastáveis. Arquivo novo:
+  server\adaptador_estoque_ajustes.js; alterados: server\adaptador_codigos_estoque.js (saldo com os ajustes) e
+  server\MES_LION_SERVER_JSON.ps1 (inclui o arquivo novo). Os dados da versão 1.2.0 são lidos sem conversão.
+- 1.2.0 (22/10/2026): códigos de barras (material, entrada/lote, OP impressa, leitura da OP e do material no
+  apontamento, consulta do passaporte pela etiqueta); localização física dos lotes e tela Locais de Estoque; saldo
+  reservado, em produção e consumido no Estoque; Inventário de Estoque (template, validação, aplicação, reversão,
+  reaplicação e exclusão); Recursos / Máquinas em tela única; PIs filhos gerados pelos processos escolhidos.
+  Arquivo novo: server\adaptador_codigos_estoque.js. Os dados da versão 1.1.0 são lidos sem conversão.
 - 1.1.0 (19/10/2026): passaporte da bateria sem campos obrigatórios, com a marca "painel" em cada dado, rascunho
   salvo incompleto, dados da estrutura da célula, pegada de carbono (AICV ou ACV da família) e composição mássica
   puxados da OP, massas úteis (sem solventes) no painel do cliente e campos repetidos unificados; biblioteca de

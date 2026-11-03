@@ -475,7 +475,8 @@ async def main():
         await abrir_mes('2026-08')
         ago = await page.evaluate("document.querySelectorAll('.pcp-card-v2317.mes-congelado').length")
         await abrir_mes('2026-10')
-        out = await page.evaluate("document.querySelectorAll('.pcp-card-v2317.mes-congelado').length")
+        # operações distintas (a operação ainda em execução aparece em todos os dias até hoje: conta-se a operação, não o dia)
+        out = await page.evaluate("new Set([...document.querySelectorAll('.pcp-card-v2317.mes-congelado')].map(e => e.getAttribute('data-congelado'))).size")
         ok(ago == hist_agosto and out == len(prog), 'depois de recarregar (F5): operações executadas continuam em cinza (agosto e outubro)', (ago, hist_agosto, out, len(prog)))
 
         # ---------------------------------------------------------------- MRP > Abrir OPs
