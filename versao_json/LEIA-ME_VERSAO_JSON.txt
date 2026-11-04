@@ -18,7 +18,8 @@ ATUALIZAR UMA INSTALAÇÃO QUE JÁ ESTÁ EM USO (SEM PERDER OS DADOS)
 1. Feche a janela do servidor do MES.
 2. Copie a pasta server deste pacote por cima da pasta server da instalação atual (substitua os arquivos; a pasta
    tem o servidor MES_LION_SERVER_JSON.ps1 e os arquivos adaptador_frontend.js, adaptador_passaporte.js,
-   adaptador_codigos_estoque.js, adaptador_estoque_ajustes.js e adaptador_apontamento_pi.js).
+   adaptador_codigos_estoque.js, adaptador_estoque_ajustes.js, adaptador_apontamento_pi.js e
+   adaptador_relatorios.js).
    NÃO copie a pasta Dados: é nela que estão os seus dados, usuários e histórico. Não extraia o .zip inteiro
    por cima da pasta atual.
 3. Abra de novo com INICIAR_MES.bat. No modo rede basta atualizar o computador que abre o servidor; nos outros,
