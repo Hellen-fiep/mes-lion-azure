@@ -1077,6 +1077,12 @@
       massas: auto ? auto.massas : massas(bp.CodOrdemProducao, exc), auto: auto, prod: prod, op: opDe(bp.CodOrdemProducao) || {} };
   }
   window.mesBPVisao = visao;
+  /* catálogo de campos do passaporte (também usado em Relatórios > Passaporte) */
+  window.mesBPCampos = function () {
+    var tit = {};
+    GRUPOS.forEach(function (g) { tit[g.id] = g.titulo; });
+    return CAMPOS.map(function (f) { return { k: f.k, l: f.l, g: f.g, grupo: tit[f.g] || f.g, u: f.u || '', dp: f.dp || '', oculto: !!f.oculto, cadastro: !!f.base }; });
+  };
 
   /* ---------------- formulário ---------------- */
   var estado = null;

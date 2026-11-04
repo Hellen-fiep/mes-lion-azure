@@ -905,6 +905,8 @@
         Saldo: ef - carga, Ocupacao: ef > 0 ? 100 * carga / ef : null, Configurado: !!p };
     });
   }
+  /* dados do relatório Carga × capacidade (também usados em Relatórios > Planejamento) */
+  window.mesCapRelatorioDados = function (ini, fim) { return relatorio(ini, fim); };
   window.mesCapCalcular = function () {
     var a = $('mcInicio') && $('mcInicio').value, b = $('mcFim') && $('mcFim').value;
     if (!a || !b || a > b || dias(a, b).length > 366) return alert('Selecione um período válido de até 366 dias.');

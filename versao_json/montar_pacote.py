@@ -2,8 +2,9 @@
 """
 Monta o pacote MES LION 1.0 JSON (sem PostgreSQL):
   frontend ORIGINAL (index.html, style.css, js/, assets/ — conferido byte a byte contra o MANIFESTO_FRONTEND.txt)
-  + server/*.ps1 (UTF-8 com BOM, exigido pelo Windows PowerShell 5.1) + server/*.js (adaptador_frontend.js e
-    adaptador_passaporte.js: correções do frontend que o servidor inclui no index.html ao entregar a página)
+  + server/*.ps1 (UTF-8 com BOM, exigido pelo Windows PowerShell 5.1) + server/*.js (adaptadores do frontend —
+    adaptador_frontend.js, adaptador_passaporte.js, adaptador_codigos_estoque.js, adaptador_estoque_ajustes.js,
+    adaptador_apontamento_pi.js e adaptador_relatorios.js — que o servidor inclui no index.html ao entregar a página)
   + lançadores .bat (CRLF) + LEIA-ME
   + Dados/ (opcional: arquivo de dados inicial).
 

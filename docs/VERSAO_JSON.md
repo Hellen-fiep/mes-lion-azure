@@ -55,6 +55,11 @@ Também as rotas que o frontend já chamava e o servidor PowerShell não tinha (
 MES AZURE: `/api/backup`, `/api/backups`, `/api/export`, `/api/import`, `/api/open-data-folder`, `/api/info`,
 `/api/attachments`, `/api/passport-publish` e `/passaporte/{id}.html`; e `/healthz`.
 
+1.5.0 (Relatórios): `GET /api/audit?de=aaaa-mm-dd&ate=aaaa-mm-dd&limite=N` devolve só as alterações do período (dia de
+`changed_at`, até `limite`, no máximo 200.000; parâmetros inválidos são ignorados e valem as últimas 500, como antes) e
+`POST /api/relatorios/exportacao` (`relatorio`, `nome`, `arquivo`, `linhas`, `abas`, `filtros`; exige sessão) grava
+no histórico módulo `relatorios`, ação `EXPORTAR` — o `.xlsx` é gerado no navegador.
+
 Diferenças em relação ao servidor PowerShell original (todas corrigem problemas do original):
 
 * `Dados/`, `server/` e arquivos que não são do frontend **não são servidos** (o original entregava qualquer arquivo
@@ -79,6 +84,7 @@ servida:
 | `adaptador_codigos_estoque.js` | `mes-adaptador-codigos-estoque` | 1.2.0 / 1.3.0 |
 | `adaptador_estoque_ajustes.js` | `mes-adaptador-estoque-ajustes` | 1.3.0 |
 | `adaptador_apontamento_pi.js` | `mes-adaptador-apontamento-pi` | 1.4.0 |
+| `adaptador_relatorios.js` | `mes-adaptador-relatorios` | 1.5.0 |
 
 Correções de `adaptador_frontend.js`:
 
@@ -209,6 +215,42 @@ caracterização.
     consumidora (`BAIXA_AUTOMATICA_ENCERRAMENTO`; uma vez para as OPs já encerradas: `BAIXA_LEGADO_1.4.0`,
     `data.meta.mes140BaixaLegadoPI`).
 
+`adaptador_relatorios.js` (1.5.0) — menu **Relatórios** (`relatorios`, `relatorios_ver`, `relatorios_dossie`,
+`relatorios_modelos`, grupo antes de Administração):
+
+22. **Catálogo**: 38 relatórios em 11 módulos, cada um com `id`, regra de cálculo, colunas tipadas (`txt`, `int`,
+    `num`, `qtd`, `moeda`, `pct`, `min`, `h`, `co2`, `data`, `datahora`) e o mapa dos filtros comuns para as suas
+    colunas (período, projeto, produto/descrição, OP, máquina, situação; busca livre nas colunas visíveis; `ops` para
+    o dossiê). As linhas saem das mesmas funções das telas: `mesLinhasEstoque`/`mesResumoMateriaisEstoque` (saldo e
+    reservas), `mesApontamentoPI14.livro()` (PI/PA), `maquinasDaOP`/`duracaoMin` (tempo), `custosOP`,
+    `calcCustoFamiliaOPV33(raiz, false)`, `calcSustFamiliaOPV33(raiz, false)` (+ `AuditoriaCO2JSON`),
+    `v102MaterialLossCost`, `mesCapRelatorioDados` (exposto no `adaptador_frontend.js`), `mesBPVisao`/`mesBPCampos`
+    (exposto no `adaptador_passaporte.js`) e a regra do MRP (`mesCalcMRPUnificado` não é chamado: grava
+    `mrp_planos`).
+23. **Sem efeito colateral**: cada relatório roda com `saveLocal` desligado e, ao terminar, as coleções de `data` que
+    mudaram voltam ao estado anterior no mesmo objeto (as funções das telas regravam campos ao calcular — ex.:
+    `recalcularCustosOPV3814` congela o custo projetado e refaz `QtdConsumida`). Coleções com mais de 5.000 linhas
+    (`sust_lci`) não são copiadas.
+24. **Excel**: gerador OOXML próprio (sem biblioteca externa; `CompressionStream('deflate-raw')` quando houver):
+    números e datas tipados (data = número de série do Excel, hora local), formatos por tipo (`"R$" #,##0.00`,
+    `0.0%`, `dd/mm/yyyy`, quantidade em Geral), unidade no cabeçalho (UM única das linhas vai para o nome da
+    coluna), `autoFilter` + `_xlnm._FilterDatabase`, painel congelado, linha Total com `SUBTOTAL(109,…)` e valor em
+    cache (quantidade só com uma UM; percentual e unitários nunca), aba `Parâmetros`.
+25. **Modelos** (`data.relatorios_modelos`: `IdModelo`, `Nome`, `Relatorio`, `Filtros`, `Colunas`, `Ordem`,
+    `CriadoPor/Em`, `AtualizadoPor/Em`): mesmo nome do mesmo usuário e relatório substitui; exclusão pelo autor ou
+    ADMIN.
+26. **Dossiê da OP**: OP sozinha ou família (`raizFamilia`): 15 abas — Resumo, Produção, Etiquetas, Saldo PI e PA,
+    Materiais planejado × real, Lotes de material, Consumo de PIs, Tempo por máquina, Apontamentos de tempo, Perdas,
+    Custo por OP, Custo e CO₂ da família, Contribuição no CO₂, Rastreabilidade (para trás: `consumos_materiais` com
+    entrada/NF e `op_pi_consumos` subindo pela OP de origem do lote; para frente: consumos, perdas e baixas do lote
+    no livro do Estoque PI/PA e passaportes da OP) e Parâmetros.
+27. **API para testes**: `window.mesRelatoriosAPI` (`lista`, `modulos`, `executar`, `xlsx` em base64, `dossie`,
+    `rastreabilidade`).
+
+Correção no `adaptador_estoque_ajustes.js` (1.5.0): `N()` lia valores gravados com ponto e três casas como milhar
+(`"0.001"` → 1, `"0.125"` → 125: MRP, saldo do lote no Ajuste de Estoque, estoque mínimo); agora usa o `num()` do app e
+o ponto como milhar fica só em `numDigitado()` (texto digitado).
+
 ## Testes (CI: job `versao-json`, Windows PowerShell 5.1 real)
 
 | Suíte | O que confere |
@@ -221,6 +263,7 @@ caracterização.
 | `tests/teste_calendario_json.py` | Calendário de Produção: tela estável, "Editar dia" com clique real do mouse (liberar sábado, bloquear dia útil), sugestão de programação e "Projetar sequência" sem operações em dias indisponíveis, trechos gravados e mantidos após F5, programação da versão anterior, "Validar conflitos", "Recalcular programação", "Limpar datas", carga do relatório Carga × capacidade, MRP > "Abrir OPs", histórico (OP concluída e apontamentos de tempo em cinza, gravados no servidor, mantidos após "Limpar datas" e F5) |
 | `tests/teste_passaporte_json.py` | biblioteca GWP100 e banco LCI sem repetição; versão ativa nos cálculos; template `.xlsx` com exemplo e importação (`.xlsx` do Excel, CSV, erros, `.xls` binário); passaporte: campos únicos sem obrigatório, marcas "painel", dados puxados da OP (estrutura, ACV da família e AICV, massas úteis), rascunho com OP aberta, painel do cliente e HTML do QR, alteração à mão mantida, passaporte antigo, F5, PDF interno |
 | `tests/teste_apontamento_pi_json.py` | 1.4.0: correção da QtdProduzida e baixa única das famílias encerradas; motivos de perda (duplicado, parecido, lista, importação); fluxo de PIs no roteiro (validação, sugestão, cópia) e Estrutura em níveis; PI nas OPs abertas; etiquetas (kg, N por etiqueta, por unidade, aglutinada, impressão); consumo de PI pela etiqueta, perda na etapa, saldo insuficiente, estorno; origem da perda (PI e material com lote); custo/CO₂ sem dupla contagem; PI isolado com custo herdado; tempo por máquina (intervalo, iniciar/finalizar, sobreposição, energia) e calendário por máquina; baixa automática no encerramento; estoque PI/PA (saldos, etiquetas, rastreio, baixa/estorno, cancelamento, conferência); exclusão bloqueada; servidor e F5 |
+| `tests/teste_relatorios_json.py` | 1.5.0: menu e catálogo (busca, módulo); todos os relatórios executam e abrem na tela; nenhum dado alterado nem gravado ao executar; números = funções das telas (saldo por lote e por material, livro PI/PA, produção, tempo planejado e tempo real gravado na etapa, Pareto, carga × capacidade, MRP, custo e CO₂ da família); saída e estorno do Ajuste de Estoque no relatório e no saldo do lote; filtros (período, OP, produto sem acento, situação, busca), colunas e ordem; `.xlsx` baixado pela tela conferido com openpyxl (tipos, formatos, unidade no cabeçalho, SUBTOTAL, filtro, painel, Parâmetros); histórico das exportações; modelos (salvar, substituir, abrir, exportar, excluir, servidor); dossiê (abas, resumo, custo/CO₂, rastreabilidade, só a OP) |
 | `tests/teste_gerar_pacote_json.py` | `.zip` para outros usuários com dados, sem backups/logs |
 | `tests/teste_redefinir_senha_json.py` | `REDEFINIR_SENHA.bat`: nova senha PBKDF2, reativação, senhas que não conferem |
 

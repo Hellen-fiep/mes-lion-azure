@@ -542,7 +542,7 @@ jobs:
           Copy-Item tests/referencia_frontend_original/index.html out/front/index.html -Force
           python versao_json/montar_pacote.py --frontend out/front --saida out/json/MES_LION_1_0_JSON --dados tests/dados_teste/MES_LION_DATA_TESTE.json --zip out/MES_LION_1_0_JSON_dados_de_teste.zip
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          pip install requests bcrypt playwright | Out-Null
+          pip install requests bcrypt playwright openpyxl | Out-Null
           python -m playwright install chromium | Out-Null
 
       - name: Ambiente (Windows PowerShell 5.1 e .NET Framework) e sintaxe dos scripts no parser 5.1
@@ -591,15 +591,16 @@ jobs:
           }
           exit $codigo
 
-      - name: Navegador (E2E, primeira tela, Capacidade e Carga, Calendário de Produção, Passaporte, Apontamento/PIs 1.4.0) — servidor no Windows PowerShell 5.1
+      - name: Navegador (E2E, primeira tela, Capacidade e Carga, Calendário de Produção, Passaporte, Apontamento/PIs 1.4.0, Relatórios 1.5.0) — servidor no Windows PowerShell 5.1
         shell: pwsh
-        timeout-minutes: 40
+        timeout-minutes: 50
         run: |
           [Console]::OutputEncoding = [Text.Encoding]::UTF8
           $codigo = 0
           foreach ($t in @(@{ porta = 8791; script = 'tests/e2e_fluxos.py'; log = 'e2e_json' }, @{ porta = 8792; script = 'tests/primeira_tela.py'; log = 'primeira_tela_json' },
                            @{ porta = 8793; script = 'tests/teste_capacidade_json.py'; log = 'capacidade_json' }, @{ porta = 8794; script = 'tests/teste_calendario_json.py'; log = 'calendario_json' },
-                           @{ porta = 8795; script = 'tests/teste_passaporte_json.py'; log = 'passaporte_json' }, @{ porta = 8796; script = 'tests/teste_apontamento_pi_json.py'; log = 'apontamento_pi_json' })) {
+                           @{ porta = 8795; script = 'tests/teste_passaporte_json.py'; log = 'passaporte_json' }, @{ porta = 8796; script = 'tests/teste_apontamento_pi_json.py'; log = 'apontamento_pi_json' },
+                           @{ porta = 8797; script = 'tests/teste_relatorios_json.py'; log = 'relatorios_json' })) {
             python versao_json/montar_pacote.py --frontend out/front --saida "out/json_$($t.porta)/MES_LION_1_0_JSON" --dados tests/dados_teste/MES_LION_DATA_TESTE.json | Out-Null
             $pkg = (Resolve-Path "out/json_$($t.porta)/MES_LION_1_0_JSON").Path
             $p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$pkg\server\MES_LION_SERVER_JSON.ps1",'-Port',"$($t.porta)",'-NaoAbrirNavegador','-Detalhado' -PassThru -RedirectStandardOutput "out/$($t.log)_servidor.log" -RedirectStandardError "out/$($t.log)_servidor_err.log"

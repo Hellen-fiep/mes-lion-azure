@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $VersaoMes = 'MES LION 1.0 JSON'
-$VersaoServidor = '1.4.0 (2026-11-03)'
+$VersaoServidor = '1.5.0 (2026-11-04)'
 $EhPS7 = $PSVersionTable.PSVersion.Major -ge 6
 $EhWindows = ($env:OS -eq 'Windows_NT')
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -662,6 +662,42 @@ function Ler-UltimasLinhas([string]$arquivo, [int]$maximo) {
         }
     } finally { $fs.Dispose() }
 }
+# Parametro da URL (?nome=valor), ja decodificado; '' quando nao existe
+function Parametro-Url($req, [string]$nome) {
+    $alvo = [string]$req.target
+    $i = $alvo.IndexOf('?')
+    if ($i -lt 0) { return '' }
+    foreach ($par in $alvo.Substring($i + 1).Split('&')) {
+        if (-not $par) { continue }
+        $kv = $par.Split([char[]]@('='), 2)
+        $k = [Uri]::UnescapeDataString($kv[0].Replace('+', ' '))
+        if ($k -ceq $nome) { if ($kv.Length -gt 1) { return [Uri]::UnescapeDataString($kv[1].Replace('+', ' ')) }; return '' }
+    }
+    return ''
+}
+# Historico filtrado pelo dia de changed_at (aaaa-mm-dd, inclusive), do mais recente para o mais antigo, no maximo $maximo
+function Auditoria-Periodo([string]$de, [string]$ate, [int]$maximo) {
+    if ($de -notmatch '^\d{4}-\d{2}-\d{2}$') { $de = '' }
+    if ($ate -notmatch '^\d{4}-\d{2}-\d{2}$') { $ate = '' }
+    $linhas = Ler-UltimasLinhas $ArqAuditoria ([int]::MaxValue)
+    $rx = New-Object System.Text.RegularExpressions.Regex '"changed_at"\s*:\s*"(\d{4}-\d{2}-\d{2})'
+    $sel = New-Object 'System.Collections.Generic.List[string]'
+    for ($x = $linhas.Length - 1; $x -ge 0 -and $sel.Count -lt $maximo; $x--) {
+        $t = $linhas[$x]
+        if (-not ($t.StartsWith('{') -and $t.EndsWith('}'))) { continue }
+        $m = $rx.Match($t)
+        if (-not $m.Success) { continue }
+        $dia = $m.Groups[1].Value
+        if ($de -and [string]::CompareOrdinal($dia, $de) -lt 0) { continue }
+        if ($ate -and [string]::CompareOrdinal($dia, $ate) -gt 0) { continue }
+        $sel.Add($t)
+    }
+    $texto = '[' + [string]::Join(',', $sel) + ']'
+    try { [void](Json-Ler $texto); return $texto } catch { }
+    $ok = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($t in $sel) { try { [void](Json-Ler $t); $ok.Add($t) } catch { } }
+    return '[' + [string]::Join(',', $ok) + ']'
+}
 function Auditoria-Json([int]$maximo = 500) {
     $linhas = Ler-UltimasLinhas $ArqAuditoria $maximo
     $validas = New-Object 'System.Collections.Generic.List[string]'
@@ -940,13 +976,17 @@ function Ler-Multipart($req) {
 #   adaptador_apontamento_pi.js - apontamento de tempo por maquina, PIs que entram em cada operacao do roteiro (insumo
 #                             da OP, consumo e perda pela etiqueta/lote), etiquetas de PI/PA, estoque de PI e PA,
 #                             motivos de perda cadastrados e regras de calculo sem dupla contagem
+#   adaptador_relatorios.js - menu Relatorios: catalogo de relatorios dos modulos (filtros, colunas, previa, Excel
+#                             .xlsx com a aba Parametros, modelos salvos) e Dossie da OP; cada exportacao vai para o
+#                             historico (POST /api/relatorios/exportacao)
 # =====================================================================================================
 $ArquivosAdaptador = @(
     @{ Arquivo = 'adaptador_frontend.js'; Id = 'mes-adaptador-json' },
     @{ Arquivo = 'adaptador_passaporte.js'; Id = 'mes-adaptador-passaporte' },
     @{ Arquivo = 'adaptador_codigos_estoque.js'; Id = 'mes-adaptador-codigos-estoque' },
     @{ Arquivo = 'adaptador_estoque_ajustes.js'; Id = 'mes-adaptador-estoque-ajustes' },
-    @{ Arquivo = 'adaptador_apontamento_pi.js'; Id = 'mes-adaptador-apontamento-pi' }
+    @{ Arquivo = 'adaptador_apontamento_pi.js'; Id = 'mes-adaptador-apontamento-pi' },
+    @{ Arquivo = 'adaptador_relatorios.js'; Id = 'mes-adaptador-relatorios' }
 )
 $script:AdaptadorHtml = ''
 function Carregar-Adaptador {
@@ -1190,7 +1230,25 @@ function Rotear($req) {
         Auditar $u 'usuarios' 'UPDATE' $id
         R-JsonTexto $st 200 '{"ok":true}'; return
     }
-    if ($caminho -eq '/api/audit') { R-JsonTexto $st 200 (Auditoria-Json 500); return }
+    if ($caminho -eq '/api/audit') {
+        # ?de=aaaa-mm-dd&ate=aaaa-mm-dd&limite=N (Relatorios > Auditoria); sem parametros: as ultimas 500 alteracoes
+        $limite = 500
+        $limTxt = Parametro-Url $req 'limite'
+        if ($limTxt -match '^\d{1,6}$') { $limite = [Math]::Max(1, [Math]::Min(200000, [int]$limTxt)) }
+        $de = Parametro-Url $req 'de'; $ate = Parametro-Url $req 'ate'
+        if ($de -or $ate) { R-JsonTexto $st 200 (Auditoria-Periodo $de $ate $limite); return }
+        R-JsonTexto $st 200 (Auditoria-Json $limite); return
+    }
+    # Relatorios: registra no historico quem exportou o que (o arquivo e gerado no navegador)
+    if ($caminho -eq '/api/relatorios/exportacao' -and $metodo -eq 'POST') {
+        try { $b = Corpo-Json $req } catch { R-Erro $st 400 'Requisição inválida.'; return }
+        $d = Novo-Objeto
+        foreach ($c in @('nome', 'arquivo', 'linhas', 'abas', 'filtros')) { $d[$c] = Cortar (Campo $b $c) 1000 }
+        $rel = Cortar (Campo $b 'relatorio') 120
+        if (-not $rel) { R-Erro $st 400 'Informe o relatório exportado.'; return }
+        Auditar $u 'relatorios' 'EXPORTAR' $rel $d
+        R-JsonTexto $st 200 '{"ok":true}'; return
+    }
 
     # ---------------------------------------------------------------- documentos de equipamentos
     if ($caminho -match '^/api/equipment/(.+)/documents$') {

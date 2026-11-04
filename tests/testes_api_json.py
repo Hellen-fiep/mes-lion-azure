@@ -80,7 +80,7 @@ print(f'== MES LION 1.0 JSON — testes de API em {BASE}', flush=True)
 anon = requests.Session()
 for metodo, rota in [('GET', '/api/bootstrap'), ('GET', '/api/storage'), ('GET', '/api/users'), ('GET', '/api/audit'),
                      ('PUT', '/api/storage/MES_LION_DATA'), ('GET', '/api/info'), ('POST', '/api/backup'), ('GET', '/api/export'),
-                     ('POST', '/api/import'), ('GET', '/api/rota-inexistente')]:
+                     ('POST', '/api/import'), ('POST', '/api/relatorios/exportacao'), ('GET', '/api/rota-inexistente')]:
     r = anon.request(metodo, BASE + rota, data=b'{}')
     ok(r.status_code == 401 and r.json().get('error') == 'Não autenticado', f'sem sessão {metodo} {rota} -> 401', f'{r.status_code} {r.text[:80]}')
 r = anon.get(BASE + '/api/auth/me'); ok(r.status_code == 401, '/api/auth/me sem sessão -> 401', r.status_code)
@@ -91,12 +91,15 @@ ok('__mesCorrecaoCalendarioJson' in r.text and 'pcpValidarConflitosV2315' in r.t
 ok('mes-adaptador-passaporte' in r.text and '__mesPassaporteUnificado' in r.text and '__mesBibliotecaGWP100' in r.text
    and r.text.index('mes-adaptador-passaporte') > r.text.index('mes-adaptador-json'),
    'adaptador do passaporte e da biblioteca de fatores incluído depois do adaptador do frontend (server/adaptador_passaporte.js)', '')
+ok('mes-adaptador-relatorios' in r.text and 'MES_ADAPTADOR_RELATORIOS' in r.text and 'mesRelatoriosAPI' in r.text
+   and r.text.index('mes-adaptador-relatorios') > r.text.index('mes-adaptador-apontamento-pi') > r.text.index('mes-adaptador-passaporte'),
+   'adaptador dos relatórios (1.5.0) incluído por último, depois do apontamento de PIs (server/adaptador_relatorios.js)', '')
 ok('mes_plataforma_azure.js' not in r.text, 'index.html sem o adaptador do Azure', '')
 r = anon.get(BASE + '/js/app.js?v=1.0.21'); ok(r.status_code == 200 and r.headers.get('content-type', '').startswith('application/javascript'), 'js/app.js servido (application/javascript)', r.headers.get('content-type'))
 r = anon.get(BASE + '/assets/logo-mes.jpg'); ok(r.status_code == 200 and r.headers.get('content-type') == 'image/jpeg', 'imagem servida', r.status_code)
 r = anon.get(BASE + '/arquivo-inexistente.txt'); ok(r.status_code == 404 and r.text == 'Não encontrado', 'arquivo inexistente -> 404 "Não encontrado"', f'{r.status_code} {r.text}')
 for rota in ['/Dados/MES_LION_DATA.json', '/Dados/usuarios.json', '/dados/usuarios.json', '/Dados./usuarios.json', '/Dados%20/usuarios.json',
-             '/server/MES_LION_SERVER_JSON.ps1', '/server/adaptador_frontend.js', '/server/adaptador_passaporte.js', '/js/../server/adaptador_frontend.js', '/js/../Dados/usuarios.json',
+             '/server/MES_LION_SERVER_JSON.ps1', '/server/adaptador_frontend.js', '/server/adaptador_passaporte.js', '/server/adaptador_relatorios.js', '/js/../server/adaptador_frontend.js', '/js/../Dados/usuarios.json',
              '/%2e%2e/etc/passwd', '/INICIAR_MES.bat', '/Dados/auditoria.jsonl']:
     r = anon.get(BASE + rota)
     ok(r.status_code == 404, f'arquivo privado bloqueado: {rota}', r.status_code)
@@ -256,6 +259,26 @@ aud = s.get(BASE + '/api/audit').json()
 ok(any(x['module'] == 'usuarios' and x['action'] == 'CREATE' and x['record_key'] == nome_u for x in aud), 'auditoria de criação de usuário', '')
 ok(len(aud) <= 500 and set(aud[0].keys()) == {'username', 'module', 'action', 'record_key', 'changed_at', 'details'}, 'GET /api/audit (formato original, até 500)', aud[0])
 ok(all(aud[i]['changed_at'] >= aud[i + 1]['changed_at'] for i in range(len(aud) - 1)), 'histórico do mais recente para o mais antigo', [a['changed_at'] for a in aud[:3]])
+
+# 1.5.0 — Relatórios: registro das exportações (o .xlsx é gerado no navegador) e histórico por período
+r = s.post(BASE + '/api/relatorios/exportacao', json={'nome': 'sem o relatório'})
+ok(r.status_code == 400 and 'relatório' in r.json().get('error', ''), 'exportação sem o relatório -> 400', r.text)
+r = s.post(BASE + '/api/relatorios/exportacao', json={'relatorio': 'est_lotes', 'nome': 'Saldo por lote (entrada)', 'arquivo': 'MES_LION_saldo_por_lote_teste.xlsx',
+                                                     'linhas': '3', 'abas': '2', 'filtros': 'Material ou descrição: solvente', 'extra': 'x' * 5000})
+ok(r.status_code == 200 and r.json() == {'ok': True}, 'POST /api/relatorios/exportacao registra a exportação', r.text)
+aud5 = s.get(BASE + '/api/audit?limite=5').json()
+a0 = aud5[0] if aud5 else {}
+ok(len(aud5) <= 5 and a0.get('module') == 'relatorios' and a0.get('action') == 'EXPORTAR' and a0.get('record_key') == 'est_lotes' and a0.get('username') == 'admin'
+   and (a0.get('details') or {}).get('arquivo') == 'MES_LION_saldo_por_lote_teste.xlsx' and (a0.get('details') or {}).get('linhas') == '3' and 'extra' not in (a0.get('details') or {}),
+   'exportação no histórico (usuário, relatório, arquivo, linhas, filtros; só os campos conhecidos) e ?limite=5', a0)
+dia = str(a0.get('changed_at', ''))[:10]
+per = s.get(BASE + f'/api/audit?de={dia}&ate={dia}&limite=100000').json()
+ok(per and all(str(a['changed_at'])[:10] == dia for a in per) and any(a['module'] == 'relatorios' and a['record_key'] == 'est_lotes' for a in per)
+   and all(per[i]['changed_at'] >= per[i + 1]['changed_at'] for i in range(len(per) - 1)), 'GET /api/audit?de=&ate= devolve só o período (Relatórios › Histórico)', len(per))
+r = s.get(BASE + '/api/audit?de=1999-01-01&ate=1999-12-31')
+ok(r.status_code == 200 and r.json() == [], 'período sem alterações -> lista vazia', r.text[:120])
+r = s.get(BASE + '/api/audit?de=ontem&ate=x&limite=abc')
+ok(r.status_code == 200 and isinstance(r.json(), list) and 0 < len(r.json()) <= 500, 'parâmetros inválidos são ignorados (últimas 500 alterações)', r.text[:120])
 
 if DADOS:
     # usuário migrado do PostgreSQL com hash bcrypt (pgcrypto): login com a senha antiga e conversão para PBKDF2

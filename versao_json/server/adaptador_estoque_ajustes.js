@@ -22,11 +22,15 @@
      --------------------------------------------------------------------- */
   function A(v) { return Array.isArray(v) ? v : []; }
   function D() { return (typeof data === 'object' && data) ? data : null; }
+  /* número gravado nos dados ou calculado ("0,8956", "0.125", 12.5): a mesma leitura do app (num do app.js).
+     1.5.0: o ponto como separador de milhar vale só para o que a pessoa digita (numDigitado) — antes um valor gravado
+     como "0.001" ou "0.125" era lido como 1 ou 125 (MRP, saldo do lote no Ajuste de Estoque, estoque mínimo). */
   function N(v) {
     if (typeof v === 'number') return isFinite(v) ? v : 0;
+    if (typeof num === 'function') return num(v);
     var s = String(v == null ? '' : v).trim();
-    if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '');
-    var n = Number(s.replace(',', '.'));
+    if (s.indexOf(',') >= 0 && s.indexOf('.') >= 0) s = s.replace(/\./g, '').replace(',', '.'); else s = s.replace(',', '.');
+    var n = Number(s);
     return isFinite(n) ? n : 0;
   }
   /* número digitado pelo usuário: aceita vírgula; '' = vazio; NaN = inválido */

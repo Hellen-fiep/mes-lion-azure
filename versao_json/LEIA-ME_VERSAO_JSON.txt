@@ -347,6 +347,35 @@ REGRAS DE CÁLCULO REVISTAS (VERSÃO 1.4.0)
   regras. As OPs encerradas antes da 1.4.0 recebem essa baixa uma única vez (senão o lote de PI apareceria com saldo
   cheio mesmo já tendo virado PA).
 
+RELATÓRIOS (VERSÃO 1.5.0)
+- Menu Relatórios > Catálogo de relatórios: 38 relatórios prontos em 11 módulos (Estoque de materiais, PI e PA
+  prontos, Produção, Tempo por máquina, Perdas, Planejamento, Custos, Sustentabilidade / ACV, Passaporte da
+  bateria, Cadastros e Auditoria), com busca. Os números saem das mesmas contas das telas (saldo do Estoque /
+  Rastreabilidade, livro do Estoque PI / PA, custo e ACV da família, Carga × capacidade, MRP, passaporte).
+- Em cada relatório: filtros de período, projeto, produto, OP, máquina e situação (os que fazem sentido para o
+  relatório) e busca livre; escolha de colunas; clique no título de uma coluna para ordenar; prévia na tela com o
+  total de registros e a linha de totais. A regra de cálculo aparece acima da prévia e vai para o Excel.
+- "Exportar Excel (.xlsx)": planilha de verdade — números como número, datas como data, unidade no cabeçalho,
+  filtro automático, cabeçalho congelado e linha Total com SUBTOTAL (acompanha o filtro do Excel) — e a aba
+  Parâmetros (relatório, filtros, data e hora, usuário, versão e regra de cálculo). Quantidades de unidades
+  diferentes não são somadas ("várias UM"); percentuais e custos unitários não são somados.
+- "Salvar como modelo": guarda filtros, colunas e ordem com um nome. Relatórios > Meus modelos: abrir, exportar
+  direto e excluir. O período fica gravado como datas fixas. Os modelos ficam no arquivo de dados ("Mostrar os
+  modelos de todos os usuários" lista também os dos colegas).
+- Relatórios > Dossiê da OP: uma planilha com a OP sozinha ou a família (OP de PA + OPs de PI): resumo, produção,
+  etiquetas, saldo do lote, materiais planejado × real, lotes de material consumidos, consumo de PIs, tempo por
+  máquina, perdas, custo por OP, custo e CO₂ da família, contribuição de cada material no CO₂, rastreabilidade
+  para trás (lotes de entrada com fornecedor e nota fiscal; PIs e a OP que produziu cada um) e para frente (quem
+  consumiu o PI / PA, perdas, baixas e passaportes) e os parâmetros.
+- Cada exportação (relatório, modelo ou dossiê) fica no Histórico de Modificações (módulo "relatorios", ação
+  EXPORTAR, com o arquivo, o número de linhas e os filtros). O relatório Auditoria > Histórico de modificações lê
+  o histórico do período escolhido.
+- Gerar um relatório não grava nada: as funções das telas que regravam campos ao calcular (ex.: custo da OP) rodam
+  sobre os dados e eles voltam exatamente como estavam.
+- Correção: no MRP, no Ajuste de Estoque e no estoque mínimo, números gravados com ponto e três casas (ex.: 0.001 kg
+  planejado ou o saldo 0.125 de um lote) eram lidos como milhar (1 e 125). Agora são lidos como no restante do
+  MES; o ponto como separador de milhar vale só para o que é digitado (ex.: 1.234,5).
+
 ONDE FICAM OS DADOS (pasta Dados)
 - MES_LION_DATA.json ............. todos os dados do MES
 - usuarios.json .................. usuários (senhas protegidas por hash, nunca em texto)
@@ -390,6 +419,15 @@ O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
 - Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
 
 VERSÕES DO SERVIDOR JSON
+- 1.5.0 (04/11/2026): menu Relatórios — catálogo com 38 relatórios prontos de todos os módulos (filtros comuns,
+  colunas, ordem, prévia com totais), Excel .xlsx de verdade (números e datas tipados, unidade no cabeçalho, filtro,
+  totais com SUBTOTAL e aba Parâmetros), modelos salvos, Dossiê da OP (família PA + PIs, com rastreabilidade para
+  trás e para frente) e cada exportação no Histórico de Modificações (consulta por período: /api/audit?de=&ate=).
+  Correção da leitura de números com ponto e três casas no MRP, no Ajuste de Estoque e no estoque mínimo. Arquivo
+  novo: server\adaptador_relatorios.js; alterados: server\adaptador_estoque_ajustes.js (leitura dos números),
+  server\adaptador_frontend.js e server\adaptador_passaporte.js (expõem os dados da Carga × capacidade e os campos
+  do passaporte) e server\MES_LION_SERVER_JSON.ps1 (inclui o arquivo novo, registra as exportações e filtra o
+  histórico por período). Os dados da versão 1.4.0 são lidos sem conversão.
 - 1.4.0 (03/11/2026): apontamento de tempo por máquina (tempo real na energia e na mão de obra da máquina);
   roteiro com os PIs que entram em cada operação e fluxo em níveis na Estrutura do Produto; PI como insumo da OP,
   consumido pela etiqueta/lote no apontamento e com perda na etapa; origem da perda (dentro do consumo / retirada
