@@ -1,5 +1,5 @@
 /* =====================================================================
-   MES LION 1.0 JSON — ADAPTADOR 1.3.0: CÓDIGOS DE BARRAS, ESTOQUE, INVENTÁRIO, RECURSOS E PIs POR PROCESSO
+   MES LION 1.0 JSON — ADAPTADOR 1.6.0: CÓDIGOS DE BARRAS, ESTOQUE, INVENTÁRIO, RECURSOS E PIs POR PROCESSO
    Incluído pelo servidor (server\MES_LION_SERVER_JSON.ps1) no fim do index.html, DEPOIS de adaptador_frontend.js e
    adaptador_passaporte.js. Não altera os arquivos do frontend (index.html, js\, style.css): cada tela é estendida
    por cima da versão já validada, chamando sempre a função original antes.
@@ -19,10 +19,14 @@
     1.3.0) O saldo de cada entrada também desconta as saídas manuais e as baixas técnicas do Ajuste de Estoque
            (data.estoque_ajustes, tela em adaptador_estoque_ajustes.js); o Inventário passa a considerá-las; a visão
            por material mostra o estoque mínimo do cadastro de materiais (só alerta).
+    1.6.0) Recursos / Máquinas ganha o botão "⬆ Importar planilha de equipamentos" (tela em
+           adaptador_recursos_importacao.js), que usa as regras desta tela por window.mesRecursosAPI; o gerador de
+           planilhas (window.mesXlsx) passa a ter cabeçalho de várias linhas congelado, células mescladas, listas
+           suspensas, nomes definidos e mais estilos (cabeçalhos coloridos e linha com erro).
    ===================================================================== */
 (function () {
   'use strict';
-  var VERSAO = '1.3.0';
+  var VERSAO = '1.6.0';
 
   /* ---------------------------------------------------------------------
      0) UTILITÁRIOS
@@ -893,7 +897,8 @@
       var todas = partes.concat(central, [new Uint8Array(fim.buffer)]), out = new Uint8Array(todas.reduce(function (s, p) { return s + p.length; }, 0)), pos = 0;
       todas.forEach(function (p) { out.set(p, pos); pos += p.length; }); return out;
     }
-    /* linhas: [{c:[valores], s: estilo da linha, cs: [estilo por célula]}]. Estilos: 1 cabeçalho, 2 amarelo (preencher), 3 texto quebrado, 4 título, 5 cinza (não alterar) */
+    /* linhas: [{c:[valores], s: estilo da linha, cs: [estilo por célula]}]. Estilos: 1 cabeçalho, 2 amarelo (preencher), 3 texto quebrado, 4 título, 5 cinza (não alterar),
+       6 a 9 cabeçalhos verde/roxo/laranja/cinza, 10 vermelho claro (linha com erro) */
     function folha(linhas, op) {
       op = op || {};
       var rows = linhas.map(function (l, r) {
@@ -905,19 +910,33 @@
         }).join('') + '</row>';
       }).join('');
       var cols = op.larguras ? '<cols>' + op.larguras.map(function (w, i) { return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + w + '" customWidth="1"/>'; }).join('') + '</cols>' : '';
+      /* 1.6.0: op.congelar = número de linhas fixas (true = 1); op.mesclar = ['A1:G1', ...];
+         op.validacoes = [{ ref: 'C3:C2000', nome: 'ListaProcessos' | valores: ['Sim', 'Não'], titulo, mensagem }] (lista suspensa do Excel) */
+      var nf = op.congelar === true ? 1 : (Number(op.congelar) || 0);
+      var mesclas = A(op.mesclar).length ? '<mergeCells count="' + op.mesclar.length + '">' + op.mesclar.map(function (m) { return '<mergeCell ref="' + m + '"/>'; }).join('') + '</mergeCells>' : '';
+      var vals = A(op.validacoes).length ? '<dataValidations count="' + op.validacoes.length + '">' + op.validacoes.map(function (v) {
+        var f = v.nome ? xmlEsc(v.nome) : '"' + xmlEsc(A(v.valores).join(',')) + '"';
+        return '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1"' + (v.titulo ? ' errorTitle="' + xmlEsc(v.titulo) + '" promptTitle="' + xmlEsc(v.titulo) + '"' : '') +
+          (v.mensagem ? ' error="' + xmlEsc(v.mensagem) + '" prompt="' + xmlEsc(v.mensagem) + '"' : '') + ' sqref="' + v.ref + '"><formula1>' + f + '</formula1></dataValidation>';
+      }).join('') + '</dataValidations>' : '';
       return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"' + (op.ativa ? ' tabSelected="1"' : '') + '>' +
-        (op.congelar ? '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>' : '') + '</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>' + cols + '<sheetData>' + rows + '</sheetData></worksheet>';
+        (nf ? '<pane ySplit="' + nf + '" topLeftCell="A' + (nf + 1) + '" activePane="bottomLeft" state="frozen"/>' : '') + '</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>' + cols + '<sheetData>' + rows + '</sheetData>' + mesclas + vals + '</worksheet>';
     }
-    function gerar(folhas) {
+    function gerar(folhas, nomes) {
       var ct = 'application/vnd.openxmlformats-officedocument.spreadsheetml.', rel = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
       var arqs = [
         { nome: '[Content_Types].xml', texto: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="' + ct + 'sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="' + ct + 'styles+xml"/>' + folhas.map(function (f, i) { return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="' + ct + 'worksheet+xml"/>'; }).join('') + '</Types>' },
         { nome: '_rels/.rels', texto: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="' + rel + '/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
-        { nome: 'xl/workbook.xml', texto: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="' + rel + '"><bookViews><workbookView activeTab="0"/></bookViews><sheets>' + folhas.map(function (f, i) { return '<sheet name="' + xmlEsc(f.nome) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'; }).join('') + '</sheets></workbook>' },
+        { nome: 'xl/workbook.xml', texto: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="' + rel + '"><bookViews><workbookView activeTab="0"/></bookViews><sheets>' + folhas.map(function (f, i) { return '<sheet name="' + xmlEsc(f.nome) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'; }).join('') + '</sheets>' +
+          (A(nomes).length ? '<definedNames>' + nomes.map(function (n) { return '<definedName name="' + xmlEsc(n.nome) + '">' + xmlEsc(n.ref) + '</definedName>'; }).join('') + '</definedNames>' : '') + '</workbook>' },
         { nome: 'xl/_rels/workbook.xml.rels', texto: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + folhas.map(function (f, i) { return '<Relationship Id="rId' + (i + 1) + '" Type="' + rel + '/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>'; }).join('') + '<Relationship Id="rId' + (folhas.length + 1) + '" Type="' + rel + '/styles" Target="styles.xml"/></Relationships>' },
         { nome: 'xl/styles.xml', texto: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="13"/><color rgb="FF004B87"/><name val="Calibri"/><family val="2"/></font></fonts>' +
-          '<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF004B87"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEDF1F4"/><bgColor indexed="64"/></patternFill></fill></fills>' +
-          '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' }
+          '<fills count="10"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF004B87"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEDF1F4"/><bgColor indexed="64"/></patternFill></fill>' +
+          '<fill><patternFill patternType="solid"><fgColor rgb="FF2E7D32"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF6A1B9A"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFC55A11"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF546E7A"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF8D7DA"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+          '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="11"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="3" borderId="0" xfId="0" applyFill="1"/><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1"/>' +
+          /* 1.6.0: 6 a 9 = cabeçalho verde, roxo, laranja e cinza (grupos de colunas); 10 = linha com erro (vermelho claro) */
+          ['5', '6', '7', '8'].map(function (f) { return '<xf numFmtId="0" fontId="1" fillId="' + f + '" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf>'; }).join('') +
+          '<xf numFmtId="0" fontId="0" fillId="9" borderId="0" xfId="0" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' }
       ];
       folhas.forEach(function (f, i) { arqs.push({ nome: 'xl/worksheets/sheet' + (i + 1) + '.xml', texto: f.xml }); });
       return zip(arqs);
@@ -998,7 +1017,7 @@
       if (s.indexOf(',') >= 0 && s.indexOf('.') >= 0) s = s.replace(/\./g, '').replace(',', '.'); else if (s.indexOf(',') >= 0) s = s.replace(',', '.');
       return /^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s) ? Number(s) : NaN;
     }
-    return { gerar: gerar, folha: folha, ler: ler, numero: numero };
+    return { gerar: gerar, folha: folha, ler: ler, numero: numero, coluna: colLetra };
   })();
   window.mesXlsx = XL;
 
@@ -1615,7 +1634,9 @@
     cabecalho('Recursos / Máquinas', 'Cadastro único dos equipamentos por processo: tempos, pessoas, potência, taxas e custos, patrimônio, capacidade e documentos.');
     var procs = A(D().processos).map(function (p) { return txt(p.Processo); }).concat(A(D().recursos).map(function (r) { return txt(r.Processo); })).filter(function (p, i, a) { return p && a.indexOf(p) === i; }).sort(function (a, b) { return a.localeCompare(b, 'pt-BR'); });
     var codes = A(D().recursos).map(codRec).filter(function (c, i, a) { return c && a.indexOf(c) === i; }).sort(function (a, b) { return N(a) - N(b) || a.localeCompare(b); });
-    el('content').innerHTML = '<div class="toolbar"><button onclick="mesRecursoEditar(-1)">+ Novo recurso</button><button onclick="mesRecursosRecalcular()">Recalcular custos</button>' +
+    el('content').innerHTML = '<div class="toolbar"><button onclick="mesRecursoEditar(-1)">+ Novo recurso</button>' +
+      (typeof window.mesRecursosImportacao === 'function' ? '<button onclick="mesRecursosImportacao()">⬆ Importar planilha de equipamentos</button>' : '') +
+      '<button onclick="mesRecursosRecalcular()">Recalcular custos</button>' +
       '<button onclick="reportRecursos()">PDF Custos + Gráficos</button><button class="secondary" onclick="reportTabela(\'recursos\',\'Checklist / Relatório de Recursos\')">PDF Recursos</button>' +
       (typeof window.mesCapCadastro === 'function' ? '<button class="secondary" onclick="mesCapCadastro()">Capacidades das máquinas</button><button class="secondary" onclick="mesCapRelatorio()">Carga × capacidade</button>' : '') +
       '<button class="secondary" onclick="exportSelectedExcel(\'recursos\',\'Recursos / Máquinas\')">Exportar Excel selecionados</button></div>' +
@@ -1763,6 +1784,11 @@
     salvar(); recursosModulo();
   };
   window.mesRecursosModulo = recursosModulo;
+  /* 1.6.0 — regras desta tela usadas pela importação de equipamentos (adaptador_recursos_importacao.js) */
+  window.mesRecursosAPI = {
+    codigo: codRec, novoId: novoIdRecurso, proximoCodigo: proximoCodigoRecurso, sincronizar: sincronizarRecursos, custos: custosRecurso,
+    conflitos: conflitosRecursos, camposEquip: function () { return CAMPOS_EQUIP.slice(); }, chave: chave, modulo: recursosModulo
+  };
 
   /* ---------------------------------------------------------------------
      13) ESTRUTURA DO PRODUTO — GERAR PIs FILHOS PELOS PROCESSOS CADASTRADOS

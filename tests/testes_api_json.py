@@ -80,7 +80,7 @@ print(f'== MES LION 1.0 JSON — testes de API em {BASE}', flush=True)
 anon = requests.Session()
 for metodo, rota in [('GET', '/api/bootstrap'), ('GET', '/api/storage'), ('GET', '/api/users'), ('GET', '/api/audit'),
                      ('PUT', '/api/storage/MES_LION_DATA'), ('GET', '/api/info'), ('POST', '/api/backup'), ('GET', '/api/export'),
-                     ('POST', '/api/import'), ('POST', '/api/relatorios/exportacao'), ('GET', '/api/rota-inexistente')]:
+                     ('POST', '/api/import'), ('POST', '/api/relatorios/exportacao'), ('POST', '/api/recursos/importacao'), ('GET', '/api/rota-inexistente')]:
     r = anon.request(metodo, BASE + rota, data=b'{}')
     ok(r.status_code == 401 and r.json().get('error') == 'Não autenticado', f'sem sessão {metodo} {rota} -> 401', f'{r.status_code} {r.text[:80]}')
 r = anon.get(BASE + '/api/auth/me'); ok(r.status_code == 401, '/api/auth/me sem sessão -> 401', r.status_code)
@@ -93,13 +93,18 @@ ok('mes-adaptador-passaporte' in r.text and '__mesPassaporteUnificado' in r.text
    'adaptador do passaporte e da biblioteca de fatores incluído depois do adaptador do frontend (server/adaptador_passaporte.js)', '')
 ok('mes-adaptador-relatorios' in r.text and 'MES_ADAPTADOR_RELATORIOS' in r.text and 'mesRelatoriosAPI' in r.text
    and r.text.index('mes-adaptador-relatorios') > r.text.index('mes-adaptador-apontamento-pi') > r.text.index('mes-adaptador-passaporte'),
-   'adaptador dos relatórios (1.5.0) incluído por último, depois do apontamento de PIs (server/adaptador_relatorios.js)', '')
+   'adaptador dos relatórios (1.5.0) incluído depois do apontamento de PIs (server/adaptador_relatorios.js)', '')
+ok('mes-adaptador-recursos-importacao' in r.text and 'MES_ADAPTADOR_RECURSOS_IMPORTACAO' in r.text and 'mesRecursosImportacaoAPI' in r.text
+   and 'mes-adaptador-helpdesk-assistente' in r.text and 'MES_ADAPTADOR_HELPDESK_ASSISTENTE' in r.text and 'mesHelpDeskAPI' in r.text
+   and r.text.index('mes-adaptador-helpdesk-assistente') > r.text.index('mes-adaptador-recursos-importacao') > r.text.index('mes-adaptador-relatorios'),
+   'adaptadores 1.6.0 incluídos por último: importação de equipamentos e assistente do Help Desk (server/adaptador_recursos_importacao.js, adaptador_helpdesk_assistente.js)', '')
 ok('mes_plataforma_azure.js' not in r.text, 'index.html sem o adaptador do Azure', '')
 r = anon.get(BASE + '/js/app.js?v=1.0.21'); ok(r.status_code == 200 and r.headers.get('content-type', '').startswith('application/javascript'), 'js/app.js servido (application/javascript)', r.headers.get('content-type'))
 r = anon.get(BASE + '/assets/logo-mes.jpg'); ok(r.status_code == 200 and r.headers.get('content-type') == 'image/jpeg', 'imagem servida', r.status_code)
 r = anon.get(BASE + '/arquivo-inexistente.txt'); ok(r.status_code == 404 and r.text == 'Não encontrado', 'arquivo inexistente -> 404 "Não encontrado"', f'{r.status_code} {r.text}')
 for rota in ['/Dados/MES_LION_DATA.json', '/Dados/usuarios.json', '/dados/usuarios.json', '/Dados./usuarios.json', '/Dados%20/usuarios.json',
-             '/server/MES_LION_SERVER_JSON.ps1', '/server/adaptador_frontend.js', '/server/adaptador_passaporte.js', '/server/adaptador_relatorios.js', '/js/../server/adaptador_frontend.js', '/js/../Dados/usuarios.json',
+             '/server/MES_LION_SERVER_JSON.ps1', '/server/adaptador_frontend.js', '/server/adaptador_passaporte.js', '/server/adaptador_relatorios.js',
+             '/server/adaptador_recursos_importacao.js', '/server/adaptador_helpdesk_assistente.js', '/js/../server/adaptador_frontend.js', '/js/../Dados/usuarios.json',
              '/%2e%2e/etc/passwd', '/INICIAR_MES.bat', '/Dados/auditoria.jsonl']:
     r = anon.get(BASE + rota)
     ok(r.status_code == 404, f'arquivo privado bloqueado: {rota}', r.status_code)
@@ -279,6 +284,27 @@ r = s.get(BASE + '/api/audit?de=1999-01-01&ate=1999-12-31')
 ok(r.status_code == 200 and r.json() == [], 'período sem alterações -> lista vazia', r.text[:120])
 r = s.get(BASE + '/api/audit?de=ontem&ate=x&limite=abc')
 ok(r.status_code == 200 and isinstance(r.json(), list) and 0 < len(r.json()) <= 500, 'parâmetros inválidos são ignorados (últimas 500 alterações)', r.text[:120])
+
+# 1.6.0 — Recursos / Máquinas: registro da importação de equipamentos por planilha (e do desfazer) no histórico
+r = s.post(BASE + '/api/recursos/importacao', json={'acao': 'APAGAR_TUDO', 'idImportacao': 'IMPREC-X'})
+ok(r.status_code == 400 and 'Ação' in r.json().get('error', ''), 'registro da importação com ação desconhecida -> 400', r.text)
+r = s.post(BASE + '/api/recursos/importacao', json={'acao': 'importar', 'idImportacao': 'IMPREC-X'})
+ok(r.status_code == 400, 'ação em minúsculas não é aceita (IMPORTAR ou DESFAZER) -> 400', r.text)
+r = s.post(BASE + '/api/recursos/importacao', json={'acao': 'IMPORTAR'})
+ok(r.status_code == 400 and 'importação' in r.json().get('error', ''), 'registro da importação sem o id -> 400', r.text)
+r = s.post(BASE + '/api/recursos/importacao', data=b'{nao e json', headers={'Content-Type': 'application/json'})
+ok(r.status_code == 400, 'corpo inválido -> 400', r.text)
+r = s.post(BASE + '/api/recursos/importacao', json={'acao': 'IMPORTAR', 'idImportacao': 'IMPREC-20261110-TESTE', 'arquivo': 'equipamentos.xlsx', 'linhas': '12', 'novos': '5',
+                                                   'atualizados': '3', 'capacidades': '2', 'ignorados': '0', 'senha': 'nao grava'})
+ok(r.status_code == 200 and r.json() == {'ok': True}, 'POST /api/recursos/importacao registra a importação', r.text)
+a0 = (s.get(BASE + '/api/audit?limite=1').json() or [{}])[0]
+ok(a0.get('module') == 'recursos' and a0.get('action') == 'IMPORTAR' and a0.get('record_key') == 'IMPREC-20261110-TESTE' and a0.get('username') == 'admin'
+   and a0.get('details') == {'arquivo': 'equipamentos.xlsx', 'linhas': '12', 'novos': '5', 'atualizados': '3', 'capacidades': '2', 'ignorados': '0'},
+   'importação no histórico (usuário, id, arquivo e contagens; só os campos conhecidos)', a0)
+r = s.post(BASE + '/api/recursos/importacao', json={'acao': 'DESFAZER', 'idImportacao': 'IMPREC-20261110-TESTE', 'arquivo': 'equipamentos.xlsx', 'ignorados': '1'})
+a0 = (s.get(BASE + '/api/audit?limite=1').json() or [{}])[0]
+ok(r.status_code == 200 and a0.get('action') == 'DESFAZER_IMPORTACAO' and a0.get('record_key') == 'IMPREC-20261110-TESTE' and (a0.get('details') or {}).get('ignorados') == '1',
+   'desfazer a importação também vai para o histórico (DESFAZER_IMPORTACAO)', a0)
 
 if DADOS:
     # usuário migrado do PostgreSQL com hash bcrypt (pgcrypto): login com a senha antiga e conversão para PBKDF2

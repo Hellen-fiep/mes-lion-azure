@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $VersaoMes = 'MES LION 1.0 JSON'
-$VersaoServidor = '1.5.0 (2026-11-04)'
+$VersaoServidor = '1.6.0 (2026-11-10)'
 $EhPS7 = $PSVersionTable.PSVersion.Major -ge 6
 $EhWindows = ($env:OS -eq 'Windows_NT')
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -979,6 +979,12 @@ function Ler-Multipart($req) {
 #   adaptador_relatorios.js - menu Relatorios: catalogo de relatorios dos modulos (filtros, colunas, previa, Excel
 #                             .xlsx com a aba Parametros, modelos salvos) e Dossie da OP; cada exportacao vai para o
 #                             historico (POST /api/relatorios/exportacao)
+#   adaptador_recursos_importacao.js - importacao de equipamentos por planilha em Recursos / Maquinas: modelo .xlsx
+#                             (instrucoes, listas suspensas, exemplos ou os equipamentos cadastrados), validacao linha a
+#                             linha, importacao com copia de seguranca e desfazer (POST /api/recursos/importacao)
+#   adaptador_helpdesk_assistente.js - Help Desk com o assistente passo a passo (treinamento): objetivos com perguntas
+#                             de sim e nao, checagens nos dados, "Ir para a tela", checklist, trilhas por perfil com o
+#                             progresso de cada usuario e o registro de "nao encontrei o que queria"
 # =====================================================================================================
 $ArquivosAdaptador = @(
     @{ Arquivo = 'adaptador_frontend.js'; Id = 'mes-adaptador-json' },
@@ -986,7 +992,9 @@ $ArquivosAdaptador = @(
     @{ Arquivo = 'adaptador_codigos_estoque.js'; Id = 'mes-adaptador-codigos-estoque' },
     @{ Arquivo = 'adaptador_estoque_ajustes.js'; Id = 'mes-adaptador-estoque-ajustes' },
     @{ Arquivo = 'adaptador_apontamento_pi.js'; Id = 'mes-adaptador-apontamento-pi' },
-    @{ Arquivo = 'adaptador_relatorios.js'; Id = 'mes-adaptador-relatorios' }
+    @{ Arquivo = 'adaptador_relatorios.js'; Id = 'mes-adaptador-relatorios' },
+    @{ Arquivo = 'adaptador_recursos_importacao.js'; Id = 'mes-adaptador-recursos-importacao' },
+    @{ Arquivo = 'adaptador_helpdesk_assistente.js'; Id = 'mes-adaptador-helpdesk-assistente' }
 )
 $script:AdaptadorHtml = ''
 function Carregar-Adaptador {
@@ -1247,6 +1255,20 @@ function Rotear($req) {
         $rel = Cortar (Campo $b 'relatorio') 120
         if (-not $rel) { R-Erro $st 400 'Informe o relatório exportado.'; return }
         Auditar $u 'relatorios' 'EXPORTAR' $rel $d
+        R-JsonTexto $st 200 '{"ok":true}'; return
+    }
+    # Recursos / Maquinas: registra no historico a importacao de equipamentos por planilha (e o desfazer); os dados
+    # gravados vao pelo /api/data, como as demais telas
+    if ($caminho -eq '/api/recursos/importacao' -and $metodo -eq 'POST') {
+        try { $b = Corpo-Json $req } catch { R-Erro $st 400 'Requisição inválida.'; return }
+        $acao = [string](Campo $b 'acao')
+        if ($acao -cne 'IMPORTAR' -and $acao -cne 'DESFAZER') { R-Erro $st 400 'Ação inválida.'; return }
+        $id = Cortar (Campo $b 'idImportacao') 80
+        if (-not $id) { R-Erro $st 400 'Informe a importação.'; return }
+        $d = Novo-Objeto
+        foreach ($c in @('arquivo', 'linhas', 'novos', 'atualizados', 'capacidades', 'ignorados')) { $d[$c] = Cortar (Campo $b $c) 1000 }
+        $evento = 'IMPORTAR'; if ($acao -ceq 'DESFAZER') { $evento = 'DESFAZER_IMPORTACAO' }
+        Auditar $u 'recursos' $evento $id $d
         R-JsonTexto $st 200 '{"ok":true}'; return
     }
 

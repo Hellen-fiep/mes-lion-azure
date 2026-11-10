@@ -18,8 +18,8 @@ ATUALIZAR UMA INSTALAÇÃO QUE JÁ ESTÁ EM USO (SEM PERDER OS DADOS)
 1. Feche a janela do servidor do MES.
 2. Copie a pasta server deste pacote por cima da pasta server da instalação atual (substitua os arquivos; a pasta
    tem o servidor MES_LION_SERVER_JSON.ps1 e os arquivos adaptador_frontend.js, adaptador_passaporte.js,
-   adaptador_codigos_estoque.js, adaptador_estoque_ajustes.js, adaptador_apontamento_pi.js e
-   adaptador_relatorios.js).
+   adaptador_codigos_estoque.js, adaptador_estoque_ajustes.js, adaptador_apontamento_pi.js,
+   adaptador_relatorios.js, adaptador_recursos_importacao.js e adaptador_helpdesk_assistente.js).
    NÃO copie a pasta Dados: é nela que estão os seus dados, usuários e histórico. Não extraia o .zip inteiro
    por cima da pasta atual.
 3. Abra de novo com INICIAR_MES.bat. No modo rede basta atualizar o computador que abre o servidor; nos outros,
@@ -377,6 +377,52 @@ RELATÓRIOS (VERSÃO 1.5.0)
   planejado ou o saldo 0.125 de um lote) eram lidos como milhar (1 e 125). Agora são lidos como no restante do
   MES; o ponto como separador de milhar vale só para o que é digitado (ex.: 1.234,5).
 
+IMPORTAÇÃO DE EQUIPAMENTOS POR PLANILHA (VERSÃO 1.6.0)
+- Engenharia > Recursos / Máquinas > "⬆ Importar planilha de equipamentos": cadastra ou altera vários equipamentos
+  de uma vez, com as mesmas regras do formulário.
+- "⬇ Modelo em branco (com exemplos)": planilha .xlsx com as abas Equipamentos (colunas em grupos, listas suspensas
+  de processo, escala, ativo, operação e unidade, e duas linhas amarelas de EXEMPLO, que não são importadas),
+  Instruções (regras e o que vai em cada coluna) e Listas (processos cadastrados e demais listas). "⬇ Modelo com os
+  equipamentos cadastrados": uma linha por equipamento e processo, com o ID interno, para alterar em massa. Também
+  aceita CSV (separado por ponto e vírgula) e os nomes dos campos do cadastro no cabeçalho.
+- Uma linha por equipamento e processo. Código em branco: o MES numera (próximo número livre). Código que já existe
+  com o mesmo processo e subprocesso: atualiza a linha; em outro processo: acrescenta o processo ao equipamento e o
+  que ficar em branco (nome, potência, patrimônio, NF, valor, fatores, capacidade, taxas e escala) vem do cadastro
+  dele, como no formulário. Na atualização, célula em branco mantém o valor atual. Custos de energia e de MOD
+  calculados como no formulário. Colunas laranja (opcionais): Capacidades das máquinas do planejamento.
+- Ao subir a planilha o MES mostra linha a linha o que cada uma faz (novo equipamento, novo processo, atualizar, sem
+  mudança, exemplo) e o que muda (de → para), com os erros (processo fora do cadastro, número inválido ou negativo,
+  valor fora da lista, linha repetida, código inválido, capacidade incompleta, equipamento que já existe sem o
+  código...) e os avisos (mesmo código em equipamentos diferentes, dados copiados do cadastro, custo zero por falta
+  de taxa). Com erro não importa: "⬇ Planilha com os erros e avisos apontados" devolve a planilha com a coluna do
+  resultado, para corrigir e subir de novo. Subir de novo a mesma planilha não duplica nada.
+- "Atualizar os equipamentos que já existem" desmarcado: só entram os equipamentos e processos novos.
+- Antes de gravar o MES faz uma cópia de segurança. Cada importação fica em "Importações anteriores" (com os valores
+  de antes de cada linha) e no Histórico de Modificações (módulo "recursos", ações IMPORTAR e DESFAZER_IMPORTACAO).
+  "Desfazer" tira as linhas criadas e volta as alteradas; linhas alteradas depois da importação e equipamentos já
+  usados em roteiro, OP ou programação ficam como estão (e são listados). As 20 importações mais recentes podem ser
+  desfeitas.
+
+HELP DESK — ASSISTENTE PASSO A PASSO (VERSÃO 1.6.0)
+- O Help Desk (botão "?" do menu, "? Ajuda" no topo e "? Procedimento" das telas) abre na aba "🧭 Assistente passo a
+  passo"; o fluxo de integração dos módulos de antes continua na aba "🗺 Fluxo de integração dos módulos".
+- "O que você quer fazer?": busca por objetivo (com sinônimos, sem acento e sem maiúsculas: "cadastrar máquina",
+  "nota fiscal", "refugo", "pegada de carbono"...) ou a lista dos 26 objetivos por módulo (cadastros, estoque,
+  produção, planejamento, custos/ACV/passaporte, relatórios e administração). "Nesta tela" mostra os objetivos da
+  tela que está aberta.
+- Perguntas de sim e não conferem os pré-requisitos, com uma checagem nos dados ("7 processos cadastrados", "8 OPs
+  abertas", "nenhum motivo de perda cadastrado"...) e a resposta sugerida. Quando falta algo, o assistente leva
+  primeiro ao objetivo que resolve (ex.: cadastrar o processo antes da máquina) e depois volta.
+- Cada passo diz onde fica, o que preencher, o que é obrigatório, para onde vão os dados e os erros comuns. "Ir para
+  a tela" abre a tela, destaca o botão certo e deixa o assistente no canto, com "✓ Feito → próximo passo" (a OP
+  escolhida no assistente já vem selecionada na tela). No fim, o checklist e o próximo passo natural.
+- Trilhas por perfil (Operador, PCP, Engenharia, Qualidade/ACV, Administrador): cada usuário escolhe a sua e o MES
+  guarda os objetivos concluídos de cada um no arquivo de dados. O assistente lembra onde a pessoa parou
+  ("Continuar de onde parei").
+- "Não encontrei o que queria" registra o que a pessoa procurava, a tela e o passo. O administrador vê em
+  "👥 Progresso da equipe e pedidos de ajuda" o progresso de cada usuário e esses pedidos, e exporta tudo para o
+  Excel.
+
 ONDE FICAM OS DADOS (pasta Dados)
 - MES_LION_DATA.json ............. todos os dados do MES
 - usuarios.json .................. usuários (senhas protegidas por hash, nunca em texto)
@@ -420,6 +466,16 @@ O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
 - Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
 
 VERSÕES DO SERVIDOR JSON
+- 1.6.0 (10/11/2026): importação de equipamentos por planilha em Recursos / Máquinas (modelo .xlsx com instruções,
+  listas suspensas e exemplos, ou com os equipamentos cadastrados; CSV; validação linha a linha com o que muda,
+  erros e avisos; planilha com os erros; importação com cópia de segurança, histórico e desfazer; Capacidades das
+  máquinas na mesma planilha) e assistente passo a passo no Help Desk (26 objetivos com perguntas de sim e não,
+  checagens nos dados, "Ir para a tela" com o botão destacado e o assistente no canto, checklist, trilhas por
+  perfil com o progresso de cada usuário e o registro de "não encontrei o que queria"). Arquivos novos:
+  server\adaptador_recursos_importacao.js e server\adaptador_helpdesk_assistente.js; alterados:
+  server\adaptador_codigos_estoque.js (botão da importação e listas suspensas no gerador de planilhas) e
+  server\MES_LION_SERVER_JSON.ps1 (inclui os arquivos novos e registra a importação no histórico). Os dados da
+  versão 1.5.0 são lidos sem conversão.
 - 1.5.0 (04/11/2026): menu Relatórios — catálogo com 38 relatórios prontos de todos os módulos (filtros comuns,
   colunas, ordem, prévia com totais), Excel .xlsx de verdade (números e datas tipados, unidade no cabeçalho, filtro,
   totais com SUBTOTAL e aba Parâmetros), modelos salvos, Dossiê da OP (família PA + PIs, com rastreabilidade para

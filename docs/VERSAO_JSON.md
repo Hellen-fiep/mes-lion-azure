@@ -60,6 +60,11 @@ MES AZURE: `/api/backup`, `/api/backups`, `/api/export`, `/api/import`, `/api/op
 `POST /api/relatorios/exportacao` (`relatorio`, `nome`, `arquivo`, `linhas`, `abas`, `filtros`; exige sessão) grava
 no histórico módulo `relatorios`, ação `EXPORTAR` — o `.xlsx` é gerado no navegador.
 
+1.6.0 (Importação de equipamentos): `POST /api/recursos/importacao` (`acao` = `IMPORTAR` ou `DESFAZER`, `idImportacao`
+obrigatório, `arquivo`, `linhas`, `novos`, `atualizados`, `capacidades`, `ignorados`; exige sessão; outros campos são
+ignorados) grava no histórico módulo `recursos`, ação `IMPORTAR` ou `DESFAZER_IMPORTACAO` — a planilha é lida e os
+dados são gravados no navegador, pelo `/api/storage` como nas outras telas.
+
 Diferenças em relação ao servidor PowerShell original (todas corrigem problemas do original):
 
 * `Dados/`, `server/` e arquivos que não são do frontend **não são servidos** (o original entregava qualquer arquivo
@@ -85,6 +90,8 @@ servida:
 | `adaptador_estoque_ajustes.js` | `mes-adaptador-estoque-ajustes` | 1.3.0 |
 | `adaptador_apontamento_pi.js` | `mes-adaptador-apontamento-pi` | 1.4.0 |
 | `adaptador_relatorios.js` | `mes-adaptador-relatorios` | 1.5.0 |
+| `adaptador_recursos_importacao.js` | `mes-adaptador-recursos-importacao` | 1.6.0 |
+| `adaptador_helpdesk_assistente.js` | `mes-adaptador-helpdesk-assistente` | 1.6.0 |
 
 Correções de `adaptador_frontend.js`:
 
@@ -251,6 +258,59 @@ Correção no `adaptador_estoque_ajustes.js` (1.5.0): `N()` lia valores gravados
 (`"0.001"` → 1, `"0.125"` → 125: MRP, saldo do lote no Ajuste de Estoque, estoque mínimo); agora usa o `num()` do app e
 o ponto como milhar fica só em `numDigitado()` (texto digitado).
 
+`adaptador_recursos_importacao.js` (1.6.0) — **Importação de equipamentos** (`recursos_importacao`, aberta pelo botão
+"⬆ Importar planilha de equipamentos" de Recursos / Máquinas):
+
+28. **Mesmas regras do formulário**: usa `window.mesRecursosAPI` (exposto no `adaptador_codigos_estoque.js`: código,
+    `novoId`, `sincronizar`, `custos`, `conflitos`) e grava `data.recursos` + `data.cad_recursos` ligados pelo
+    `IdRecurso` (um id novo por linha, sem repetir mesmo criando várias linhas no mesmo milissegundo), custos com
+    `custosRecurso` e `data.mes_capacidades` + `data.mes_capacidade_historico` (validação da tela Capacidades).
+29. **Modelo** (`mesXlsx` do `adaptador_codigos_estoque.js`, que ganhou `congelar` com N linhas, `mesclar`,
+    `validacoes` do tipo lista e nomes definidos): abas Equipamentos (grupos mesclados, 31 colunas, listas suspensas
+    ligadas a `ListaProcessos`, `ListaEscalas`, `ListaSimNao`, `ListaOperacao`, `ListaUnidades`, duas linhas de
+    EXEMPLO), Instruções e Listas; com os cadastrados traz o ID interno. Leitura de `.xlsx` (aba "Equipamentos") e
+    CSV, cabeçalho achado pelos nomes (aceita os nomes dos campos do cadastro), colunas desconhecidas avisadas.
+30. **Validação** (o que cada linha faz: `NOVO`, `NOVO_PROCESSO`, `ATUALIZAR`, `SEM_MUDANCA`, `NAO_ATUALIZAR`,
+    `EXEMPLO`, `ERRO`): casamento pelo ID interno ou por código + processo + subprocesso (sem acento/maiúsculas);
+    código novo automático depois do maior número do cadastro e da planilha; célula vazia mantém o valor; o mesmo
+    texto ou o mesmo número (`0,80` = `0.8`) não conta como mudança — a planilha com os cadastrados volta sem mudança;
+    novo processo de equipamento existente herda nome, potência, patrimônio, NF, valor, fatores, capacidade, taxas e
+    escala (como `mesRecursoUsarExistente`); chave código + processo + subprocesso única depois da importação (só
+    para linhas novas ou que mudam a chave: duplicidades antigas não bloqueiam); equipamento sem código igual a um
+    cadastrado é erro (não duplica ao subir de novo); capacidade por código, igual em todas as linhas e gravada uma
+    vez. Custos recalculados só quando tempo, pessoas, potência ou taxas mudam.
+31. **Importar / desfazer**: valida de novo com os dados do momento, `mesEstoqueAPI.backup()`, grava, guarda em
+    `data.recursos_importacoes` (`IdImportacao`, contagens, `Itens` com `RecAntes`/`CadAntes`/`RecDepois`/`CadDepois`,
+    `CapItens`; os valores anteriores só das 20 mais recentes) e registra no servidor. Desfazer compara só os campos
+    que a importação grava: linha alterada depois fica como está; linha criada já usada em `roteiro_recursos`,
+    `roteiro_etapas`, `op_etapas` ou `pcp_programacao` não é apagada; sem nada para desfazer a importação continua
+    aplicada.
+32. **API para testes**: `window.mesRecursosImportacaoAPI` (`colunas`, `modelo` em base64, `validarArquivo`, `ultima`,
+    `importarUltima`, `desfazer`).
+
+`adaptador_helpdesk_assistente.js` (1.6.0) — **Assistente passo a passo** no Help Desk (`openHelpDeskV40` ganha as abas
+"Assistente passo a passo" e "Fluxo de integração dos módulos"; o iframe original continua na segunda):
+
+33. **Objetivos** (26, em 7 grupos): nós `pergunta` (texto, ajuda, checagem `chk`, `decide` = a checagem sugere a
+    resposta, `sim`/`nao`), `passo` (tela = chave do `render`, botão a destacar, `ctx` = OP pré-selecionada, o que
+    preencher, obrigatório, destino dos dados, erros comuns, `prox`) e `fim` (checklist, próximos objetivos).
+    Destino `{ fluxo, volta }` faz antes outro objetivo e volta (pilha); `validar()` confere destinos, alcance, fim de
+    todo caminho e se cada objetivo está numa trilha.
+34. **Checagens** nos dados (`categorias`, `materiais`, `empresas`, `processos`, `equipamentos`, `pa`, `pi`,
+    `roteiros`, `formulacoes`, `lotes_saldo` = `mesLinhasEstoque`, `pi_apontados`, `ops_abertas`, `ops_pa_fechadas`,
+    `motivos`, `capacidades`, `custos`, `fatores`, `acv_calculados`, `admin`).
+35. **Busca** sem acento por título, sinônimos, grupo e passos, com peso maior para palavras raras; Enter abre o
+    primeiro resultado.
+36. **Ir para a tela**: fecha o Help Desk, `render(tela)`, escolhe a OP no primeiro `select` que a tiver (ou no campo
+    com lista), destaca o botão (classe `mha-alvo`) e mostra o assistente no canto (`#mhaDock`: feito → próximo passo,
+    onde clicar, abrir o assistente, voltar, minimizar). Pergunta ou checklist reabre o Help Desk.
+37. **Progresso**: `data.helpdesk_progresso` (um registro por usuário: `Usuario`, `Nome`, `Trilha`, `Fluxos` →
+    `Concluido`, `Vezes`, `Checklist`; `Ultimo`, `Atualizado`), gravado ao escolher a trilha e ao concluir;
+    `data.helpdesk_buscas` ("não encontrei": `Termo`, `Comentario`, `Caminho`, `Tela`, `Trilha`, até 2.000); posição
+    atual no `localStorage` do navegador por usuário ("Continuar de onde parei"). Visão "Equipe" e Excel só para ADMIN.
+38. **API para testes**: `window.mesHelpDeskAPI` (`fluxos`, `fluxo`, `trilhas`, `grupos`, `telas`, `validar`, `buscar`,
+    `checar`, `destacar`, `estado`, `iniciar`, `responder`, `feito`, `progresso`, `sair`).
+
 ## Testes (CI: job `versao-json`, Windows PowerShell 5.1 real)
 
 | Suíte | O que confere |
@@ -264,6 +324,8 @@ o ponto como milhar fica só em `numDigitado()` (texto digitado).
 | `tests/teste_passaporte_json.py` | biblioteca GWP100 e banco LCI sem repetição; versão ativa nos cálculos; template `.xlsx` com exemplo e importação (`.xlsx` do Excel, CSV, erros, `.xls` binário); passaporte: campos únicos sem obrigatório, marcas "painel", dados puxados da OP (estrutura, ACV da família e AICV, massas úteis), rascunho com OP aberta, painel do cliente e HTML do QR, alteração à mão mantida, passaporte antigo, F5, PDF interno |
 | `tests/teste_apontamento_pi_json.py` | 1.4.0: correção da QtdProduzida e baixa única das famílias encerradas; motivos de perda (duplicado, parecido, lista, importação); fluxo de PIs no roteiro (validação, sugestão, cópia) e Estrutura em níveis; PI nas OPs abertas; etiquetas (kg, N por etiqueta, por unidade, aglutinada, impressão); consumo de PI pela etiqueta, perda na etapa, saldo insuficiente, estorno; origem da perda (PI e material com lote); custo/CO₂ sem dupla contagem; PI isolado com custo herdado; tempo por máquina (intervalo, iniciar/finalizar, sobreposição, energia) e calendário por máquina; baixa automática no encerramento; estoque PI/PA (saldos, etiquetas, rastreio, baixa/estorno, cancelamento, conferência); exclusão bloqueada; servidor e F5 |
 | `tests/teste_relatorios_json.py` | 1.5.0: menu e catálogo (busca, módulo); todos os relatórios executam e abrem na tela; nenhum dado alterado nem gravado ao executar; números = funções das telas (saldo por lote e por material, livro PI/PA, produção, tempo planejado e tempo real gravado na etapa, Pareto, carga × capacidade, MRP, custo e CO₂ da família); saída e estorno do Ajuste de Estoque no relatório e no saldo do lote; filtros (período, OP, produto sem acento, situação, busca), colunas e ordem; `.xlsx` baixado pela tela conferido com openpyxl (tipos, formatos, unidade no cabeçalho, SUBTOTAL, filtro, painel, Parâmetros); histórico das exportações; modelos (salvar, substituir, abrir, exportar, excluir, servidor); dossiê (abas, resumo, custo/CO₂, rastreabilidade, só a OP) |
+| `tests/teste_importacao_recursos_json.py` | 1.6.0: botão e tela; modelo em branco conferido com openpyxl (abas, grupos mesclados, painel, listas suspensas e nomes, Listas, exemplos tipados, Instruções); exemplos ignorados; validação (código automático, novo processo herdando do cadastro, atualização sem acento, listas, capacidade com padrões e uma vez por código); importação gravada no servidor (recursos + cadastro ligados, custos, capacidade e histórico, registro e auditoria); mesma planilha de novo sem duplicar; modelo com os cadastrados de volta sem mudança (códigos repetidos, `0,80`, espaço no fim); erros que bloqueiam e planilha de erros (e subir de novo); CSV com nomes dos campos; "Atualizar" desmarcado; troca de código e processo pelo ID; desfazer (exato, linha alterada depois, equipamento em roteiro) |
+| `tests/teste_helpdesk_assistente_json.py` | 1.6.0: estrutura dos 26 objetivos e trilhas; todas as telas dos passos abrem e os botões destacados existem; abas do Help Desk (fluxo antigo preservado); "Nesta tela"; busca com sinônimos; "não encontrei" gravado; trilha e progresso por usuário; checagem e sugestão; desvio e volta; voltar; checklist; ir para a tela, destaque e assistente no canto; OP pré-selecionada; continuar depois de recarregar; equipe e Excel (ADMIN); usuário comum |
 | `tests/teste_gerar_pacote_json.py` | `.zip` para outros usuários com dados, sem backups/logs |
 | `tests/teste_redefinir_senha_json.py` | `REDEFINIR_SENHA.bat`: nova senha PBKDF2, reativação, senhas que não conferem |
 
