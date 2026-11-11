@@ -15,11 +15,14 @@
      4) Cada exportação fica no Histórico de Modificações (POST /api/relatorios/exportacao).
      5) Dossiê da OP: uma planilha com várias abas (a OP sozinha ou a família PA + PIs) — resumo, produção,
         etiquetas, materiais e lotes, PIs, tempos por máquina, perdas, custo, CO₂ e rastreabilidade.
+     1.6.1) Auditoria › "Consistência dos dados": confere os dados que alimentam estoque, custo, CO₂ e passaporte e
+        lista o que deixa algum número errado ou desatualizado, com o impacto e como corrigir (só leitura). "Custo por
+        OP" com energia, MOD e perdas das etapas da OP; MRP com a mesma conta da tela (planejado − já consumido).
    ===================================================================== */
 (function () {
   'use strict';
   if (window.MES_ADAPTADOR_RELATORIOS) return;
-  var VERSAO = '1.5.0';
+  var VERSAO = '1.6.1';
 
   /* ---------------------------------------------------------------------
      0) UTILITÁRIOS
@@ -995,27 +998,35 @@
     }, periodoInterno: true });
   rel({ id: 'pcp_mrp', modulo: 'planejamento', nome: 'Necessidades de material das OPs abertas (MRP)',
     descricao: 'Por material: necessidade bruta das OPs abertas, saldo físico, necessidade líquida (a comprar ou suprir) e estoque mínimo.',
-    regra: 'Mesma regra da tela MRP (1.3.0), aplicada a todas as OPs abertas (a tela usa só as OPs marcadas): necessidade bruta = soma das quantidades planejadas das linhas de matéria-prima; estoque = saldo físico do Estoque / Rastreabilidade (negativo conta como zero); líquida = bruta − estoque, se positiva. PIs não entram (são produzidos nas OPs da família). O estoque mínimo é só alerta.',
+    regra: 'Mesma regra da tela MRP, aplicada a todas as OPs abertas (a tela usa só as OPs marcadas): necessidade bruta = o que ainda falta consumir nas OPs (planejado − já consumido em cada OP, 1.6.1), na UM do material; estoque = saldo físico do Estoque / Rastreabilidade (negativo conta como zero); líquida = bruta − estoque, se positiva. PIs não entram (são produzidos nas OPs da família). O estoque mínimo é só alerta.',
     filtros: { produto: 'Material', produtoDesc: 'Descricao', op: 'OPs', status: 'Acao' },
-    colunas: [C('Material', 'Material'), C('Descricao', 'Descrição'), C('UM', 'UM'), C('Bruta', 'Necessidade bruta', 'qtd'), C('Estoque', 'Estoque (saldo físico)', 'qtd'),
+    colunas: [C('Material', 'Material'), C('Descricao', 'Descrição'), C('UM', 'UM'), C('Planejado', 'Planejado nas OPs', 'qtd'), C('JaConsumido', 'Já consumido nas OPs', 'qtd'),
+      C('Bruta', 'Necessidade bruta (a consumir)', 'qtd'), C('Estoque', 'Estoque (saldo físico)', 'qtd'),
       C('Liquida', 'Necessidade líquida', 'qtd'), C('Acao', 'Ação'), C('Minimo', 'Estoque mínimo', 'qtd'), C('SituacaoMinimo', 'Situação do mínimo'), C('OPs', 'OPs')],
     linhas: function () {
       var d = D() || {}, ops = opsMapa(), saldos = {}, por = {}, ordem = [];
       linhasMateriais().forEach(function (m) { saldos[m.Material] = m; });
-      A(d.op_materiais).forEach(function (m) {
+      if (typeof window.mesNecessidadesMRP === 'function') {
+        /* 1.6.1: a mesma conta da tela MRP (planejado − já consumido, na UM do material) */
+        window.mesNecessidadesMRP(A(d.op).filter(function (o) { return o && o.CodOP && opAtivaMRP(o); })).forEach(function (z) {
+          var c = txt(z.Item), x = por[c] = { Material: c, Descricao: txt(z.Material), UM: txt(z.UM), Bruta: N(z.NecessidadeBruta), Planejado: N(z.Planejado), JaConsumido: N(z.JaConsumido), ops: {} };
+          A(z.Detalhes).forEach(function (q) { x.ops[txt(q.OP)] = 1; });
+          ordem.push(c);
+        });
+      } else A(d.op_materiais).forEach(function (m) {
         if (!m || ehLinhaPI(m)) return;
         var op = ops[txt(m.CodOP)], c = txt(m.CodigoMaterial);
         if (!op || !c || !opAtivaMRP(op)) return;
-        var x = por[c] || (por[c] = { Material: c, Descricao: txt(m.DescricaoMaterial), UM: txt(m.UM), Bruta: 0, ops: {} });
+        var x = por[c] || (por[c] = { Material: c, Descricao: txt(m.DescricaoMaterial), UM: txt(m.UM), Bruta: 0, Planejado: 0, JaConsumido: 0, ops: {} });
         if (!por[c].contado) { por[c].contado = true; ordem.push(c); }
-        x.Bruta += N(m.QtdPlanejada || m.QtdNecessaria || m.QuantidadePlanejada || m.Qtd); x.ops[txt(m.CodOP)] = 1;
+        var q = N(m.QtdPlanejada || m.QtdNecessaria || m.QuantidadePlanejada || m.Qtd); x.Bruta += q; x.Planejado += q; x.ops[txt(m.CodOP)] = 1;
       });
       var linhas = ordem.map(function (c) {
         var x = por[c], s = saldos[c] || {}, fis = N(s.Saldo), est = Math.max(0, fis), br = arred(x.Bruta, 6), liq = arred(Math.max(0, br - est), 6);
         var mat = materialCad(c), min = mat && txt(mat.EstoqueMinimo) !== '' && N(mat.EstoqueMinimo) > 0 ? N(mat.EstoqueMinimo) : '';
         var sitMin = min === '' ? '' : (fis < min ? 'ABAIXO DO MÍNIMO' : (fis - br < min ? 'FICARÁ ABAIXO APÓS AS OPs ABERTAS' : 'OK'));
-        return { Material: c, Descricao: x.Descricao || s.Descricao || '', UM: x.UM || s.UM || '', Bruta: br, Estoque: arred(est, 6), Liquida: liq, Acao: liq > 0 ? 'COMPRAR / SUPRIR' : 'ESTOQUE SUFICIENTE',
-          Minimo: min, SituacaoMinimo: sitMin, OPs: Object.keys(x.ops).join('; ') };
+        return { Material: c, Descricao: x.Descricao || s.Descricao || '', UM: x.UM || s.UM || '', Planejado: arred(x.Planejado, 6), JaConsumido: arred(x.JaConsumido, 6), Bruta: br, Estoque: arred(est, 6), Liquida: liq,
+          Acao: liq > 0 ? 'COMPRAR / SUPRIR' : 'ESTOQUE SUFICIENTE', Minimo: min, SituacaoMinimo: sitMin, OPs: Object.keys(x.ops).join('; ') };
       });
       var abertas = A(d.op).filter(function (o) { return o && o.CodOP && opAtivaMRP(o); }).length, marcadas = A(d.meta && d.meta.mrpOpsIncluidas).length;
       return { linhas: linhas, resumo: [['OPs abertas consideradas', abertas], ['OPs marcadas na tela MRP', d.meta && d.meta.mrpOpsInicializado ? marcadas : 'todas (nenhuma seleção gravada)'],
@@ -1024,13 +1035,14 @@
 
   /* ---------------- Custos ---------------- */
   rel({ id: 'custo_op', modulo: 'custos', nome: 'Custo por OP (projetado × efetivo)',
-    descricao: 'Cada OP: custo de materiais projetado e efetivo, desvio, energia + mão de obra do roteiro, total projetado, total efetivo e custo por unidade produzida.',
-    regra: 'Mesma conta do quadro de custos do Apontamento de Produção: materiais projetados × efetivos (consumos por lote), desvio = efetivo − projetado; energia + MOD pelos recursos do roteiro. Custo por unidade = total efetivo ÷ produzido.',
+    descricao: 'Cada OP: custo de materiais projetado e efetivo, desvio, energia e mão de obra das etapas, perdas, total projetado, total efetivo e custo por unidade produzida.',
+    regra: 'Materiais projetados (planejado × média ponderada) × efetivos (consumos por lote), desvio = efetivo − projetado. Energia e MOD = as etapas desta OP na auditoria de custo (a mesma conta do custo da família, 1.6.1: a soma das OPs fecha com a família). Total projetado = materiais projetados + energia + MOD; total efetivo = materiais efetivos + energia + MOD + perdas. Custo por unidade = total efetivo ÷ produzido. Sem depreciação.',
     filtros: { projeto: 'Projeto', produto: 'Produto', produtoDesc: 'Descricao', op: 'OP', status: 'Status' },
     colunas: [C('OP', 'OP'), C('Tipo', 'Tipo'), C('Produto', 'Produto'), C('Descricao', 'Descrição'), C('Status', 'Situação'), C('UM', 'UM'), C('Produzido', 'Produzido', 'qtd'),
       C('MatProj', 'Materiais projetados', 'moeda', { u: 'R$' }), C('MatEf', 'Materiais efetivos', 'moeda', { u: 'R$' }), C('Desvio', 'Desvio de materiais', 'moeda', { u: 'R$' }),
-      C('DesvioPct', 'Desvio de materiais', 'pct', { u: '%' }), C('Processo', 'Energia + MOD (roteiro)', 'moeda', { u: 'R$' }), C('TotalProj', 'Total projetado', 'moeda', { u: 'R$' }),
-      C('TotalEf', 'Total efetivo', 'moeda', { u: 'R$' }), C('Unit', 'Custo efetivo por unidade', 'moeda', { u: 'R$/UM', soma: false }), C('Projeto', 'Projeto')],
+      C('DesvioPct', 'Desvio de materiais', 'pct', { u: '%' }), C('Energia', 'Energia', 'moeda', { u: 'R$' }), C('MOD', 'Mão de obra', 'moeda', { u: 'R$' }),
+      C('Processo', 'Energia + MOD (etapas da OP)', 'moeda', { u: 'R$' }), C('KWh', 'Energia', 'num', { u: 'kWh', casas: 3 }), C('Perdas', 'Perdas', 'moeda', { u: 'R$' }),
+      C('TotalProj', 'Total projetado', 'moeda', { u: 'R$' }), C('TotalEf', 'Total efetivo', 'moeda', { u: 'R$' }), C('Unit', 'Custo efetivo por unidade', 'moeda', { u: 'R$/UM', soma: false }), C('Projeto', 'Projeto')],
     linhas: function (f) {
       var prod = producaoPorOP();
       return A((D() || {}).op).filter(function (o) { return o && o.CodOP && (!(f && f.ops instanceof Set) || f.ops.has(txt(o.CodOP))); }).map(function (o) {
@@ -1038,7 +1050,8 @@
         try { c = typeof custosOP === 'function' ? custosOP(cod) || {} : {}; } catch (e) { c = {}; }
         var mp = N(c.materiaisProjetado), me = N(c.materiaisEfetivo), pr = prod[cod] || 0, tef = N(c.totalEfetivo);
         return { OP: cod, Tipo: txt(o.TipoOP), Produto: produtoOP(o), Descricao: txt(o.DescricaoProduto), Status: txt(o.Status), UM: txt(o.UM), Produzido: pr, MatProj: arred(mp, 6), MatEf: arred(me, 6),
-          Desvio: arred(me - mp, 6), DesvioPct: mp ? arred((me - mp) / mp * 100, 6) : '', Processo: arred(N(c.processo), 6), TotalProj: arred(N(c.total), 6), TotalEf: arred(tef, 6),
+          Desvio: arred(me - mp, 6), DesvioPct: mp ? arred((me - mp) / mp * 100, 6) : '', Energia: arred(N(c.energia), 6), MOD: arred(N(c.mod), 6), Processo: arred(N(c.processo), 6),
+          KWh: arred(N(c.energiaKWh), 6), Perdas: arred(N(c.perdas), 6), TotalProj: arred(N(c.total), 6), TotalEf: arred(tef, 6),
           Unit: pr > 0 ? arred(tef / pr, 6) : '', Projeto: projetoOP(o) };
       });
     } });
@@ -1288,6 +1301,200 @@
         });
       });
     } });
+  rel({ id: 'aud_consistencia', modulo: 'auditoria', nome: 'Consistência dos dados',
+    descricao: 'Confere os dados que alimentam estoque, custo, CO₂ e passaporte e lista o que deixa algum número errado ou desatualizado — lotes negativos, registros de OPs excluídas, unidades sem conversão, perdas sem lote, potências fora do comum, códigos repetidos, custo e CO₂ gravados diferentes do cálculo atual e outros — com o impacto e como corrigir.',
+    regra: 'Só leitura: nada é corrigido sozinho. Erro = número errado hoje; Atenção = número provavelmente errado ou desatualizado; Informação = regra aplicada que vale conferir. Custo e CO₂ atuais = o mesmo cálculo das telas, feito agora sem gravar; diferença acima de 0,5% é apontada. Potência acima de 50 kW é apontada para conferência.',
+    filtros: { produto: 'Tipo', status: 'Gravidade', op: 'Registro' },
+    colunas: [C('Gravidade', 'Gravidade'), C('Tipo', 'Verificação'), C('Modulo', 'Módulo'), C('Registro', 'Registro'), C('Detalhe', 'O que foi encontrado'), C('Impacto', 'Impacto nos números'),
+      C('Correcao', 'Como corrigir')],
+    linhas: function () { return consistencia(); } });
+
+  /* 1.6.1 — CONSISTÊNCIA DOS DADOS (relatório aud_consistencia) */
+  function q4(v) { return fmtNum(arred(N(v), 4), 4, 0); }
+  function rs(v) { return 'R$ ' + fmtNum(arred(N(v), 2), 2); }
+  var GRAVIDADE = { E: 'Erro', A: 'Atenção', I: 'Informação' }, ORDEM_GRAV = { E: 0, A: 1, I: 2 };
+  var SOLTOS = [
+    ['consumos_materiais', 'CodOP', 'consumo(s) de material', 'Ignorados no saldo do estoque e no custo.'],
+    ['producao', 'CodOP', 'apontamento(s) de produção', 'Ignorados nos cálculos (custo, CO₂, lotes de PI/PA).'],
+    ['perdas', 'CodOP', 'perda(s)', 'Ignoradas nos cálculos de custo e CO₂.'],
+    ['op_etapas', 'CodOP', 'etapa(s) de OP', 'Ignoradas no custo e no CO₂.'],
+    ['op_materiais', 'CodOP', 'linha(s) de material de OP', 'Ignoradas nas reservas e no MRP.'],
+    ['pcp_programacao', 'OP', 'programação(ões) no calendário', 'Podem ocupar o calendário e a carga de capacidade.'],
+    ['apontamento_tempos', 'CodOP', 'apontamento(s) de tempo', 'Ignorados no tempo real das OPs.'],
+    ['op_pi_consumos', 'CodOPConsumidora', 'consumo(s) de PI', 'Podem baixar o saldo de lotes de PI.'],
+    ['etiquetas_producao', 'CodOP', 'etiqueta(s) de produção', 'Podem aparecer no estoque de PI e PA.'],
+    ['custos_op', 'CodOP', 'custo(s) gravado(s)', 'Ficam como histórico; nenhuma OP usa.'],
+    ['sust_op', 'CodOP', 'cálculo(s) de CO₂ gravado(s)', 'Ficam como histórico; nenhuma OP usa.']];
+  function consistencia() {
+    var d = D() || {}, out = [], ops = opsMapa(), a14 = api14(), est = window.mesEstoqueAPI || null, desc = mapaDescricoes();
+    function add(g, tipo, modulo, registro, detalhe, impacto, correcao) {
+      out.push({ _g: g, Gravidade: GRAVIDADE[g], Tipo: tipo, Modulo: modulo, Registro: registro, Detalhe: detalhe, Impacto: impacto, Correcao: correcao });
+    }
+    function ehPI(cod) { var p = A(d.estrutura).find(function (x) { return x && txt(x['Código']) === txt(cod); }); return p ? String(p['Tipo Produto'] || '').toUpperCase() === 'PI' : /^PI/i.test(txt(cod)); }
+
+    /* custo e CO₂ das famílias (as mesmas funções das telas, sem gravar) e energia por equipamento */
+    var kwhPorEquip = {}, kwhTotal = 0, familias = [];
+    familiasPA().forEach(function (o) {
+      var cod = txt(o.CodOP), f = { op: o, cod: cod, audit: null, custo: null, sust: null };
+      try { f.audit = typeof auditCostFamilyV4014 === 'function' ? auditCostFamilyV4014(cod) : null; } catch (e) { }
+      try { f.custo = typeof v4033CostScope === 'function' ? v4033CostScope(cod, false).row : (typeof calcCustoFamiliaOPV33 === 'function' ? calcCustoFamiliaOPV33(cod, false, {}) : null); } catch (e) { }
+      try { f.sust = sustFamilia(cod); } catch (e) { }
+      A(f.audit && f.audit.etapas).forEach(function (e) { var k = norm(e.Equipamento); kwhPorEquip[k] = (kwhPorEquip[k] || 0) + N(e.EnergiaKWh); kwhTotal += N(e.EnergiaKWh); });
+      familias.push(f);
+    });
+
+    /* 1) estoque: lotes, entradas e consumos */
+    var lotes = typeof window.mesLinhasEstoque === 'function' ? A(window.mesLinhasEstoque()) : [];
+    lotes.forEach(function (r) {
+      var reg = txt(r.Entrada) + ' · ' + txt(r.CodigoMaterial), um = txt(r.UM);
+      if (N(r.Saldo) < 0) add('E', 'Lote com saldo negativo', 'Estoque', reg,
+        'Entrada de ' + q4(r.QtdEntrada) + ' ' + um + '; saíram ' + q4(N(r.ConsumoOP) + N(r.PerdasLote) + N(r.AjusteSaida) + N(r.BaixaTecnica)) + ' ' + um + ' (consumos ' + q4(r.ConsumoOP) + ', perdas ' + q4(r.PerdasLote) +
+        ', saídas e baixas ' + q4(N(r.AjusteSaida) + N(r.BaixaTecnica)) + '): saldo ' + q4(r.Saldo) + ' ' + um + '.' + (txt(r.OPsRelacionadas) ? ' OPs: ' + txt(r.OPsRelacionadas) + '.' : ''),
+        'Saldo do estoque, disponível para as OPs, MRP e inventário.',
+        'Confira a quantidade e a UM da entrada ' + txt(r.Entrada) + ' (Entrada de materiais). Se faltou lançar uma entrada, lance-a; se o consumo foi apontado no lote errado, estorne e aponte no lote certo.');
+      if (txt(r.SemConversaoUM)) add('E', 'Apontamento em UM sem conversão para o lote', 'Estoque', reg, txt(r.SemConversaoUM) + '.', 'O saldo do lote soma quantidades de unidades diferentes.',
+        'Cadastre o "Fator conversão para kg" do material ' + txt(r.CodigoMaterial) + ' (Materiais) ou corrija a UM do lançamento.');
+    });
+    A(d.consumos_materiais).forEach(function (c) {
+      if (!c || c.AcimaDoSaldo !== 'Sim' || !ops[txt(c.CodOP)]) return;
+      add('I', 'Consumo registrado acima do saldo do lote', 'Apontamento de produção', txt(c.ConsumoID) + ' · OP ' + txt(c.CodOP),
+        q4(consumoLiquido(c)) + ' ' + txt(c.UM) + ' de ' + txt(c.CodigoMaterial) + ' no lote ' + txt(c.Entrada) + ' (saldo antes: ' + q4(c.SaldoLoteAntes) + ' ' + txt(c.UMLote) + '), confirmado no aviso.',
+        'O lote fica negativo até a entrada ser corrigida.', 'Corrija a entrada do lote ou estorne o consumo e aponte no lote certo.');
+    });
+    A(d.entradas).forEach(function (e) {
+      if (!e) return;
+      var cod = txt(e['CódigoMaterial']), m = materialCad(cod), uE = txt(e.UnidadeMedida), uM = txt(m && m.UM), reg = txt(e.Entrada) + ' · ' + cod;
+      if (!m) { add('E', 'Entrada de material sem cadastro', 'Entrada de materiais', reg, 'O material ' + cod + ' não está no cadastro de materiais.', 'Custo médio, conversão de UM e CO₂ desse material ficam sem dados.', 'Cadastre o material ' + cod + ' ou corrija o código da entrada.'); return; }
+      if (uE && uM && est && est.normUM(uE) !== est.normUM(uM)) {
+        var c1 = est.converterUM(1, uE, uM, cod), fk = N(m['Fator conversão para kg']);
+        if (c1.ok) add('A', 'UM da entrada diferente da UM do material', 'Entrada de materiais', reg,
+          'Entrada em ' + uE + ', material em ' + uM + ': o MES converte 1 ' + uE + ' = ' + q4(c1.q) + ' ' + uM + (fk > 0 ? ' (fator ' + q4(fk) + ' kg por ' + uM + ')' : '') + '.',
+          'Custo unitário do lote, saldo na visão por material e MRP dependem dessa conversão.', 'Se o fator estiver certo, nada a fazer; se não, corrija o "Fator conversão para kg" do material ' + cod + '.');
+        else add('E', 'UM da entrada sem conversão para a UM do material', 'Entrada de materiais', reg, 'Entrada em ' + uE + ', material em ' + uM + ', sem fator de conversão.',
+          'Custo unitário do lote fica 0 e o lote fica fora da visão por material e do MRP.', 'Cadastre o "Fator conversão para kg" do material ' + cod + ' ou corrija a UM da entrada.');
+      }
+      if (!(N(e.QtdAdquirida) > 0)) add('E', 'Entrada sem quantidade', 'Entrada de materiais', reg, 'Quantidade adquirida vazia ou zero.', 'Lote sem saldo; consumo desse lote deixa o saldo negativo.', 'Informe a quantidade da entrada.');
+      else if (!(N(e['Custo R$']) > 0) && !(N(e['ValorUnitario (R$/UM)']) > 0)) add('A', 'Entrada sem valor', 'Entrada de materiais', reg, 'Sem valor unitário nem custo total.', 'O consumo desse lote entra no custo da OP com R$ 0.', 'Informe o valor da entrada.');
+    });
+
+    /* 2) perdas */
+    A(d.perdas).forEach(function (p) {
+      if (!p || !ops[txt(p.CodOP || p.NOPP)]) return;
+      var cod = txt(p.CodigoMaterial || p.ItemPerdaCodigo), reg = 'OP ' + txt(p.CodOP || p.NOPP) + (cod ? ' · ' + cod : ''), q = q4(p.QuantidadePerdida) + ' ' + txt(p.Unidade || p.UM);
+      var material = /MAT/i.test(String(p.PerdaAlvoTipo || '')) && cod && !ehPI(cod);
+      if (material && !txt(p.Lote) && !txt(p.EntradaMaterial) && p.OrigemPerda !== 'DENTRO_DO_CONSUMO')
+        add('A', 'Perda de material sem lote', 'Registro de perdas', reg, 'Perda de ' + q + ' de ' + cod + (desc[cod] ? ' — ' + desc[cod] : '') + ' sem lote' + (txt(p.DataApontamento) ? ' (' + txt(p.DataApontamento) + ')' : '') + '.',
+          'O custo e o CO₂ da perda entram na OP, mas o estoque não baixa a perda (não sabe de qual lote): o saldo fica maior que o real.',
+          'Informe o lote na perda; se a perda foi dentro do consumo já apontado, marque a origem "Dentro do consumo apontado".');
+      if (!txt(p.Motivo)) add('I', 'Perda sem motivo', 'Registro de perdas', reg, 'Perda de ' + q + ' sem motivo informado.', 'Não entra nas análises por motivo.', 'Informe o motivo (cadastro de motivos de perda).');
+    });
+
+    /* 3) registros de OPs que não existem mais */
+    SOLTOS.forEach(function (s) {
+      /* agrupado pela família (código da OP sem o sufixo -PA / -01...) */
+      var por = {};
+      A(d[s[0]]).forEach(function (x) {
+        var k = txt(x && (x[s[1]] || (s[0] === 'perdas' ? x.NOPP : '') || (s[0] === 'custos_op' || s[0] === 'sust_op' ? x.CodOPMae : ''))); if (!k || ops[k]) return;
+        var base = k.replace(/-(PA|\d+)$/i, ''), g = por[base] || (por[base] = { n: 0, ops: {} });
+        g.n++; g.ops[k] = (g.ops[k] || 0) + 1;
+      });
+      Object.keys(por).forEach(function (base) {
+        var g = por[base], lista = Object.keys(g.ops).sort();
+        add('A', 'Registro de OP excluída', 'Ordens de produção', lista.length > 1 ? 'Família ' + base : 'OP ' + lista[0],
+          g.n + ' ' + s[2] + ' de ' + lista.length + ' OP(s) que não existem mais: ' + lista.map(function (k) { return k + ' (' + g.ops[k] + ')'; }).join(', ') + '.', s[3],
+          'Se a OP foi excluída por engano, recrie-a com o mesmo código; se não, esses registros podem ser apagados (são só histórico).');
+      });
+    });
+    A(d.bp).forEach(function (b) {
+      var k = txt(b && b.CodOrdemProducao);
+      if (k && !ops[k]) add('E', 'Passaporte ligado a OP inexistente', 'Passaporte da bateria', txt(b.BatteryPassportID) || txt(b.BatteryPassportGUID), 'O passaporte aponta para a OP ' + k + ', que não existe mais.',
+        'O passaporte não puxa custo, CO₂, estrutura nem genealogia da OP.', 'Abra o passaporte e selecione a OP certa.');
+    });
+
+    /* 4) recursos: código repetido, potência, tarifa de energia */
+    var nomesPorCod = {}, vistos = {};
+    A(d.cad_recursos).concat(A(d.recursos)).forEach(function (r) {
+      if (!r) return;
+      var c = txt(r['Código Equipamento'] || r.CodEquipamento), n = txt(r.Equipamento); if (!c || !n) return;
+      (nomesPorCod[c] = nomesPorCod[c] || {})[norm(n)] = n;
+      var w = N(r['PotenciaEquipamento (W)']), k = c + '|' + norm(n) + '|' + w;
+      if (w > 50000 && !vistos[k]) {
+        vistos[k] = 1;
+        var kwh = kwhPorEquip[norm(n)] || 0;
+        add('A', 'Potência fora do comum', 'Recursos / Máquinas', n + ' (código ' + c + ')', fmtNum(w, 0, 0) + ' W = ' + fmtNum(arred(w / 1000, 2), 2, 0) + ' kW.' +
+          (kwh > 0 && kwhTotal > 0 ? ' Nas famílias de OPs atuais esse equipamento soma ' + fmtNum(arred(kwh, 2), 2, 0) + ' kWh de ' + fmtNum(arred(kwhTotal, 2), 2, 0) + ' kWh (' + fmtNum(arred(kwh / kwhTotal * 100, 1), 1, 0) + '%).' : ''),
+          'Energia (kWh), custo de energia e CO₂ de todas as OPs que usam esse equipamento.', 'Confira a potência em W no cadastro do equipamento (um erro de vírgula ou de unidade multiplica o valor por 1.000).');
+      }
+    });
+    Object.keys(nomesPorCod).forEach(function (c) {
+      var nomes = Object.keys(nomesPorCod[c]).map(function (k) { return nomesPorCod[c][k]; });
+      if (nomes.length > 1) add('A', 'Código de equipamento repetido', 'Recursos / Máquinas', 'Código ' + c, 'O código ' + c + ' está em equipamentos diferentes: ' + nomes.join('; ') + '.',
+        'Custo, energia, capacidade e apontamento de tempo buscam o equipamento pelo código e podem pegar o errado.', 'Dê um código único para cada equipamento em Recursos / Máquinas.');
+    });
+    var fe = A(d.custos_fatores).filter(function (f) { return f && f.Tipo === 'Energia'; }), tarifa = fe.length ? N(fe[0].CustoUnitario) : 0.82;
+    if (!fe.length) add('A', 'Sem tarifa de energia cadastrada', 'Fatores de custo', 'Energia', 'Não há fator de custo do tipo Energia: o custo usa 0,82 R$/kWh, valor fixo do sistema.', 'Custo de energia de todas as OPs.', 'Cadastre a tarifa de energia em Fatores de custo.');
+    else {
+      if (fe.length > 1) add('A', 'Mais de uma tarifa de energia', 'Fatores de custo', 'Energia', fe.length + ' fatores do tipo Energia; o custo usa o primeiro da lista: ' + q4(tarifa) + ' R$/kWh (' + txt(fe[0].Item) + ').',
+        'Custo de energia de todas as OPs.', 'Deixe só a tarifa válida (ou coloque-a em primeiro).');
+      var outras = {};
+      A(d.recursos).forEach(function (r) { var t = N(r && r['TaxaEnergia (R$/kWh)']); if (t > 0 && Math.abs(t - tarifa) > 1e-9) outras[t] = (outras[t] || 0) + 1; });
+      Object.keys(outras).forEach(function (t) {
+        add('A', 'Tarifa de energia diferente no cadastro de recursos', 'Recursos / Máquinas', q4(t) + ' R$/kWh', outras[t] + ' recurso(s) com ' + q4(t) + ' R$/kWh; o custo das OPs usa ' + q4(tarifa) + ' R$/kWh (Fatores de custo).',
+          'Nenhum no custo hoje (ele usa os Fatores de custo), mas a tela de recursos mostra outra tarifa.', 'Deixe a tarifa dos recursos igual à dos Fatores de custo.');
+      });
+    }
+
+    /* 5) OPs: quantidade produzida */
+    var prod = producaoPorOP();
+    A(d.op).forEach(function (o) {
+      var k = txt(o && o.CodOP); if (!k || prod[k] === undefined) return;
+      if (Math.abs(N(o.QtdProduzida) - prod[k]) > 1e-6) add('E', 'Quantidade produzida diferente dos apontamentos', 'Ordens de produção', 'OP ' + k, 'QtdProduzida ' + q4(o.QtdProduzida) + ' × soma dos apontamentos ' + q4(prod[k]) + '.',
+        'Custo unitário, lotes de PI/PA e passaporte usam a QtdProduzida.', 'Grave um apontamento na OP (o MES recalcula a soma) ou corrija o apontamento errado.');
+    });
+
+    /* 6) famílias: custo e CO₂ gravados × atuais, fatores ambientais, etapas sem tempo, planejado sem consumo */
+    familias.forEach(function (f) {
+      var cod = f.cod, reg = 'Família ' + cod, g = gravadoDe(d.custos_op, cod), c = f.custo;
+      if (g && c) {
+        var tg = N(g.CustoTotal), ta = N(c.CustoTotal), dif = ta - tg;
+        if (Math.abs(dif) >= 0.01) add(Math.abs(dif) > Math.abs(tg) * 0.005 ? 'A' : 'I', 'Custo gravado diferente do cálculo atual', 'Custos', reg,
+          'Gravado ' + rs(tg) + (txt(g.DataFechamentoCusto || g.DataCalculo) ? ' em ' + txt(g.DataFechamentoCusto || g.DataCalculo) : '') + (g.CustoFechado === 'SIM' ? ' (fechado no encerramento)' : '') + '; atual ' + rs(ta) +
+          ': diferença ' + rs(dif) + (tg ? ' (' + fmtNum(arred(dif / tg * 100, 1), 1, 1) + '%)' : '') + '. Unitário gravado ' + rs(g.CustoUnitario) + ' × atual ' + rs(c.CustoUnitario) + '.',
+          'Custos Industriais, relatórios de custo gravado e passaporte mostram o valor gravado.',
+          fechada(f.op) ? 'Se a diferença vem de correção de dados ou de regra, reabra a OP de PA e encerre de novo: o custo fechado é gravado de novo no encerramento (não muda sozinho).' : 'Recalcule e grave o custo na tela Custos.');
+      }
+      var s = f.sust || {}, gs = gravadoDe(d.sust_op, cod);
+      if (gs && s.CO2eqTotal !== undefined) {
+        var sg = N(gs.CO2eqTotal), sa = N(s.CO2eqTotal), ds = sa - sg;
+        if (Math.abs(ds) >= 0.0001) add(Math.abs(ds) > Math.abs(sg) * 0.005 ? 'A' : 'I', 'CO₂ gravado diferente do cálculo atual', 'Sustentabilidade / ACV', reg,
+          'Gravado ' + q4(sg) + ' kg CO₂eq' + (txt(gs.DataCalculo) ? ' em ' + txt(gs.DataCalculo) : '') + '; atual ' + q4(sa) + ' kg CO₂eq: diferença ' + q4(ds) + ' kg' + (sg ? ' (' + fmtNum(arred(ds / sg * 100, 1), 1, 1) + '%)' : '') + '.',
+          'Telas e documentos que leem o cálculo gravado (passaporte) mostram o valor antigo.', 'Calcule de novo na tela Sustentabilidade / ACV para gravar o valor atual.');
+      }
+      if (txt(s.MateriaisSemFatorCO2)) add('A', 'Material sem fator de emissão', 'Sustentabilidade / ACV', reg, 'Sem fator de CO₂: ' + txt(s.MateriaisSemFatorCO2) + '.', 'O CO₂ desses materiais conta 0: a pegada fica menor que a real.', 'Cadastre o fator na biblioteca de fatores ambientais.');
+      if (txt(s.MateriaisSemFatorKg)) add('A', 'Material sem conversão para kg', 'Sustentabilidade / ACV', reg, 'Sem fator para kg: ' + txt(s.MateriaisSemFatorKg) + '.', 'A massa e o CO₂ desses materiais contam 0.', 'Informe o "Fator conversão para kg" no cadastro de materiais.');
+      if (N(s.EnergiaKWh) > 0 && !(N(s.CO2eqEnergia) > 0)) add('A', 'Energia sem fator de emissão', 'Sustentabilidade / ACV', reg, q4(s.EnergiaKWh) + ' kWh sem fator de CO₂ da energia.', 'O CO₂ da energia conta 0.', 'Cadastre o fator de emissão da energia elétrica (Sustentabilidade).');
+      var kwhFam = A(f.audit && f.audit.etapas).reduce(function (s2, e) { return s2 + N(e.EnergiaKWh); }, 0);
+      A(f.audit && f.audit.etapas).forEach(function (e) {
+        var r2 = 'OP ' + txt(e.OP) + ' · etapa ' + txt(e.Ordem) + (txt(e.Equipamento) ? ' · ' + txt(e.Equipamento) : '');
+        if (N(e.EnergiaKWh) > 100 && kwhFam > 0 && N(e.EnergiaKWh) / kwhFam > 0.25) add('I', 'Etapa concentra a energia da família', 'Ordens de produção', r2,
+          fmtNum(arred(N(e.EnergiaKWh), 2), 2, 0) + ' kWh = ' + fmtNum(arred(N(e.PotenciaW) / 1000, 3), 3, 0) + ' kW × ' + fmtNum(arred(N(e.TempoMin) / 60, 2), 2, 0) + ' h: ' + fmtNum(arred(N(e.EnergiaKWh) / kwhFam * 100, 1), 1, 0) + '% da energia da família.',
+          'Energia, custo de energia e CO₂ da família.', 'Confira potência e tempo. Se o equipamento atende várias células ou lotes ao mesmo tempo (ciclador, estufa), a energia da etapa vai inteira para esta OP: ajuste o tempo ou a potência atribuídos a ela.');
+        if (!(N(e.TempoMin) > 0)) add('A', 'Etapa sem tempo', 'Ordens de produção', r2, 'Sem tempo real nem planejado (roteiro e cadastro do recurso).', 'Energia e mão de obra dessa etapa contam 0.', 'Informe o tempo da operação no roteiro ou aponte o tempo real.');
+        else if (!(N(e.PotenciaW) > 0)) add('I', 'Etapa sem potência', 'Ordens de produção', r2, 'Equipamento sem potência cadastrada.', 'Energia dessa etapa conta 0.', 'Se a etapa usa equipamento elétrico, cadastre a potência em Recursos / Máquinas.');
+      });
+      A(f.audit && f.audit.materiais).forEach(function (m) {
+        if (!/fora do custo/i.test(txt(m['Origem custo']))) return;
+        add('I', 'OP encerrada com material planejado sem consumo', 'Custos', 'OP ' + txt(m.OP) + ' · ' + txt(m.CodigoMaterial),
+          txt(m.CodigoMaterial) + (txt(m.Material) ? ' — ' + txt(m.Material) : '') + ': planejado ' + q4(m.QtdPlanejada) + ' ' + txt(m.UM) + ', sem consumo apontado (seria ' + rs(N(m.QtdPlanejada) * N(m.CustoUnitario)) + ').',
+          'Fica fora do custo e do CO₂ da família (só o consumo real conta em OP encerrada).', 'Se o material foi usado nessa OP, reabra a OP, aponte o consumo e encerre de novo.');
+      });
+    });
+
+    out.sort(function (a, b) { return ORDEM_GRAV[a._g] - ORDEM_GRAV[b._g] || String(a.Tipo).localeCompare(String(b.Tipo), 'pt-BR') || String(a.Registro).localeCompare(String(b.Registro), 'pt-BR', { numeric: true }); });
+    var cont = { E: 0, A: 0, I: 0 }; out.forEach(function (x) { cont[x._g]++; delete x._g; });
+    return { linhas: out, resumo: [['Erros (número errado hoje)', cont.E], ['Atenção (provavelmente errado ou desatualizado)', cont.A], ['Informação (regra aplicada)', cont.I],
+      ['Famílias de OPs conferidas', familias.length], ['Lotes conferidos', lotes.length]] };
+  }
 
   /* ---------------------------------------------------------------------
      4) EXECUÇÃO: filtros comuns, colunas, ordem e totais

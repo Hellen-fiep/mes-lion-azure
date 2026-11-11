@@ -117,9 +117,8 @@ def massas_esperadas():
 
 
 async def main():
-    por_material = massas_esperadas()
+    gravado = massas_esperadas()
     CELULAS = celulas_produzidas()
-    util_lote = sum(v for k, v in por_material.items() if k not in ('MP0001', 'MP0002'))
     async with async_playwright() as pw:
         b = await pw.chromium.launch(executable_path=CHROME, args=['--no-sandbox']) if CHROME else await pw.chromium.launch()
         ctx = await b.new_context(viewport={'width': 1500, 'height': 950}, locale='pt-BR', timezone_id='America/Sao_Paulo', accept_downloads=True)
@@ -171,6 +170,15 @@ async def main():
         await page.fill('#user', 'admin'); await page.fill('#pass', 'meslion2026')
         await page.click('.login-card button')
         await entrar()
+        # massas úteis esperadas = auditoria da ACV da família calculada agora (a mesma que o passaporte usa)
+        por_material = await ev(f"""(() => {{ const s = calcSustFamiliaOPV33('{OP_FECHADA}', false, {{}}), por = {{}};
+            JSON.parse(s.AuditoriaCO2JSON || '[]').forEach(x => {{ const c = String(x.CodigoMaterial || '');
+              if (String(x.Tipo || '').toUpperCase() !== 'CONSUMO' || !c || c === 'ENERGIA' || /^PI/i.test(c)) return; por[c] = (por[c] || 0) + Number(x.MassaKg || 0); }});
+            return por; }})()""")
+        util_lote = sum(v for k, v in por_material.items() if k not in ('MP0001', 'MP0002'))
+        dif_massa = {k: round(gravado.get(k, 0) - por_material.get(k, 0), 7) for k in set(gravado) | set(por_material) if abs(gravado.get(k, 0) - por_material.get(k, 0)) > 1e-9}
+        ok(dif_massa == {'MP0013': round(0.14 * 0.00437, 7), 'MP0014': round(0.74 * 0.01452, 7)},
+           '1.6.1: OP encerrada só com o consumo real na massa (sai o planejado sem consumo: 0,14 m de MP0013 na -05 e 0,74 m de MP0014 na -06, já consumidos na -07)', dif_massa)
 
         # ---------------------------------------------------------------- 1) biblioteca de fatores e banco LCI
         d, sim = await esperar_servidor(lambda d: (d.get('meta') or {}).get('bibliotecaFatoresGWP100') and len(d.get('acv_fatores') or []) >= 19)

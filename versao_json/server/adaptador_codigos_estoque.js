@@ -23,10 +23,15 @@
            adaptador_recursos_importacao.js), que usa as regras desta tela por window.mesRecursosAPI; o gerador de
            planilhas (window.mesXlsx) passa a ter cabeçalho de várias linhas congelado, células mescladas, listas
            suspensas, nomes definidos e mais estilos (cabeçalhos coloridos e linha com erro).
+    1.6.1) Unidade de medida no estoque: consumo, perda e apontamento antigo descontam do lote na UM do lote (conversão
+           direta de massa, volume e comprimento; entre a UM do material e kg, pelo "Fator conversão para kg"); a visão
+           por material e as reservas somam na UM do material (lote sem regra de conversão fica fora da soma e aparece
+           marcado). Saldo negativo vira NEGATIVO (antes aparecia como ESGOTADO). Consumo maior que o saldo do lote só é
+           registrado depois de confirmar o aviso, e fica marcado (AcimaDoSaldo = Sim).
    ===================================================================== */
 (function () {
   'use strict';
-  var VERSAO = '1.6.0';
+  var VERSAO = '1.6.1';
 
   /* ---------------------------------------------------------------------
      0) UTILITÁRIOS
@@ -583,13 +588,63 @@
     return /conclu|encerr|finaliz|cancel/.test(s);
   }
   function opCancelada(op) { return /cancel/i.test(String((op && op.Status) || '')); }
+  /* 1.6.1 — UNIDADE DE MEDIDA. O consumo é apontado na UM do material da OP e a entrada pode ter sido lançada em outra
+     (ex.: MP0016 cadastrado em L com entrada em kg): o saldo do lote subtraía litros de quilos. Agora consumo, perda e
+     apontamento antigo descontam do lote convertidos para a UM DO LOTE; a visão por material, as reservas e o MRP somam
+     na UM DO MATERIAL. Massa (kg, g, mg, t), volume (L, mL, m³) e comprimento (m, cm, mm, km) convertem direto; entre a UM
+     do material e kg vale o "Fator conversão para kg" do cadastro de materiais (1 L de MP0016 = 1,12 kg). Sem regra de
+     conversão: no saldo do lote a quantidade entra como está (como antes) e a visão por material deixa o lote de fora e
+     o lista em "Lotes sem conversão de UM"; o relatório Consistência dos dados aponta os dois casos. */
+  var GRUPOS_UM = { kg: ['massa', 1], g: ['massa', 0.001], mg: ['massa', 0.000001], t: ['massa', 1000],
+    l: ['volume', 1], ml: ['volume', 0.001], m3: ['volume', 1000], m: ['comprimento', 1], cm: ['comprimento', 0.01], mm: ['comprimento', 0.001], km: ['comprimento', 1000], un: ['contagem', 1] };
+  var APELIDOS_UM = { quilo: 'kg', quilos: 'kg', quilograma: 'kg', quilogramas: 'kg', kgs: 'kg', grama: 'g', gramas: 'g', gr: 'g', miligrama: 'mg', miligramas: 'mg',
+    ton: 't', tonelada: 't', toneladas: 't', litro: 'l', litros: 'l', lt: 'l', lts: 'l', mililitro: 'ml', mililitros: 'ml', 'm³': 'm3', metro: 'm', metros: 'm', mt: 'm',
+    centimetro: 'cm', centimetros: 'cm', milimetro: 'mm', milimetros: 'mm', quilometro: 'km', quilometros: 'km',
+    unidade: 'un', unidades: 'un', und: 'un', unid: 'un', pc: 'un', 'pç': 'un', pcs: 'un', peca: 'un', pecas: 'un', 'peça': 'un', 'peças': 'un' };
+  function normUM(u) { var s = txt(u).toLowerCase().replace(/\.$/, ''); return APELIDOS_UM[s] || APELIDOS_UM[chave(s)] || s; }
+  function fatorKgDoMaterial(mat) { return N(mat && (mat['Fator conversão para kg'] || mat.FatorConversaoKg || mat.FatorKg)); }
+  /* q na unidade "de" → unidade "para"; ok = false quando não há regra de conversão (q volta como está) */
+  function converterUM(q, de, para, codMaterial) {
+    var a = normUM(de), b = normUM(para), v = N(q);
+    if (!a || !b || a === b) return { q: v, ok: true };
+    var ga = GRUPOS_UM[a], gb = GRUPOS_UM[b];
+    if (ga && gb && ga[0] === gb[0]) return { q: v * ga[1] / gb[1], ok: true };
+    var mat = materialPorCodigo(codMaterial) || {}, umM = normUM(mat.UM), f = fatorKgDoMaterial(mat), gm = GRUPOS_UM[umM];
+    if (!(f > 0) || !umM) return { q: v, ok: false };
+    var kg = null;
+    if (ga && ga[0] === 'massa') kg = v * ga[1];
+    else if (a === umM) kg = v * f;
+    else if (ga && gm && ga[0] === gm[0]) kg = v * ga[1] / gm[1] * f;
+    if (kg === null) return { q: v, ok: false };
+    if (gb && gb[0] === 'massa') return { q: kg / gb[1], ok: true };
+    if (b === umM) return { q: kg / f, ok: true };
+    if (gb && gm && gb[0] === gm[0]) return { q: kg / f * gm[1] / gb[1], ok: true };
+    return { q: v, ok: false };
+  }
+  function umDoMaterial(cod, alternativa) { var m = materialPorCodigo(cod); return txt(m && m.UM) || txt(alternativa); }
+  /* custo: quantidade da entrada na UM do material (base do custo unitário do lote e da média ponderada). A V38.22 só
+     convertia de/para kg pelo fator: entrada em g de material em kg (ou mL de material em L) dava custo unitário 0. */
+  (function () {
+    var ant = window.qtdEntradaNaUMMaterialV3822;
+    if (typeof ant !== 'function') return;
+    window.qtdEntradaNaUMMaterialV3822 = function (e, cod) {
+      var r = ant.apply(this, arguments);
+      try {
+        var m = materialPorCodigo(cod) || {}, q = N(e && e.QtdAdquirida), uE = txt(e && (e.UnidadeMedida || e.UM));
+        if (q && txt(m.UM) && uE) { var c = converterUM(q, uE, m.UM, cod); if (c.ok) return c.q; }
+      } catch (x) { }
+      return r;
+    };
+  })();
   function contextoEstoque() {
     var d = D() || {}, ops = {}, consOpMat = {}, orfaos = 0;
     A(d.op).forEach(function (o) { if (o && o.CodOP) ops[o.CodOP] = o; });
     A(d.consumos_materiais).forEach(function (c) {
       if (!c) return;
       if (!ops[c.CodOP]) { orfaos++; return; }
-      consOpMat[c.CodOP + '|' + c.CodigoMaterial] = (consOpMat[c.CodOP + '|' + c.CodigoMaterial] || 0) + consumoLiquido(c);
+      /* na UM do material (as reservas e o MRP comparam com o planejado, convertido para a mesma UM) */
+      var q = converterUM(consumoLiquido(c), c.UM || c.UMConsumo, umDoMaterial(c.CodigoMaterial, c.UM), c.CodigoMaterial).q;
+      consOpMat[c.CodOP + '|' + c.CodigoMaterial] = (consOpMat[c.CodOP + '|' + c.CodigoMaterial] || 0) + q;
     });
     return { ops: ops, consOpMat: consOpMat, orfaos: orfaos, ajustes: saidasAjustePorEntrada() };
   }
@@ -616,11 +671,17 @@
   function usoEntrada(entry, ctx) {
     ctx = ctx || contextoEstoque();
     var d = D() || {}, cod = String(entry['CódigoMaterial'] || ''), lote = String(entry.Lote || '').trim(), eid = String(entry.Entrada || '');
-    var used = 0, aberta = 0, fechada = 0, loss = 0, refs = [];
+    var used = 0, aberta = 0, fechada = 0, loss = 0, refs = [], umLote = entry.UnidadeMedida || entry.UM || '', semConversao = [];
+    /* quantidade apontada na UM do registro → UM do lote */
+    function naUMLote(q, um, origem) {
+      var c = converterUM(q, um, umLote, cod);
+      if (!c.ok) semConversao.push(origem + ': ' + f4(q) + ' ' + txt(um) + ' sem conversão para ' + txt(umLote));
+      return c.q;
+    }
     A(d.consumos_materiais).forEach(function (c) {
       if (!c || String(c.Entrada || '') !== eid || String(c.CodigoMaterial || '') !== cod) return;
       var op = ctx.ops[c.CodOP]; if (!op) return;
-      var q = consumoLiquido(c); used += q;
+      var q = naUMLote(consumoLiquido(c), c.UM || c.UMConsumo, 'consumo ' + (c.ConsumoID || '') + ' (OP ' + c.CodOP + ')'); used += q;
       if (opFechada(op)) fechada += q; else aberta += q;
       if (q) refs.push(c.CodOP);
     });
@@ -632,7 +693,9 @@
       var lots = split(m.LotesConsumidos || m.LoteConsumido || m.Lote || '');
       var sameLot = lote && lots.length === 1 && String(lots[0]).trim() === lote;
       if (explicit || sameLot) {
-        var q = N(m.QtdConsumida || m.ConsumoReal || m.QtdReal || 0); used += q;
+        var q = N(m.QtdConsumida || m.ConsumoReal || m.QtdReal || 0);
+        if (q) q = naUMLote(q, m.UM, 'apontamento da OP ' + (m.CodOP || ''));
+        used += q;
         if (opFechada(ctx.ops[m.CodOP])) fechada += q; else aberta += q;
         if (q) refs.push(m.CodOP || '');
       }
@@ -640,11 +703,11 @@
     A(d.perdas).forEach(function (p) {
       if (!p || String(p.CodigoMaterial || p.ItemPerdaCodigo || '') !== cod) return;
       var explicit = String(p.EntradaMaterial || '') === eid, sameLot = lote && String(p.Lote || '').trim() === lote;
-      if (explicit || sameLot) { loss += N(p.QuantidadePerdida || 0); if (p.CodOP) refs.push(p.CodOP); }
+      if (explicit || sameLot) { loss += naUMLote(N(p.QuantidadePerdida || 0), p.Unidade || p.UM, 'perda da OP ' + (p.CodOP || '')); if (p.CodOP) refs.push(p.CodOP); }
     });
     var aj = (ctx.ajustes || saidasAjustePorEntrada())[eid] || { saida: 0, baixa: 0 };
     return { used: used, loss: loss, ops: refs.filter(function (x, i, a) { return x && a.indexOf(x) === i; }), aberta: aberta, fechada: fechada,
-      ajusteSaida: aj.saida, baixaTecnica: aj.baixa, extras: aj.saida + aj.baixa };
+      ajusteSaida: aj.saida, baixaTecnica: aj.baixa, extras: aj.saida + aj.baixa, semConversao: semConversao };
   }
   window.v4047EntryUsage = function (entry) { return usoEntrada(entry); };
   function linhasEstoque() {
@@ -655,12 +718,53 @@
         Fornecedor: e.NomeFornecedor || '', Projeto: e.Projeto || '', CodigoProjeto: e.CodigoProjeto || '', UM: e.UnidadeMedida || '', QtdEntrada: q,
         ConsumoOP: u.used, ConsumoOPEncerrada: u.fechada, ConsumoOPAberta: u.aberta, PerdasLote: u.loss, AjusteSaida: u.ajusteSaida, BaixaTecnica: u.baixaTecnica, Saldo: saldo,
         DataCadastro: e.DataCadatro || e.DataCadastro || '', OrigemEntrada: e.OrigemEntrada || '',
-        StatusSaldo: saldo <= 0 ? 'ESGOTADO' : saldo < q * 0.2 ? 'BAIXO' : 'DISPONÍVEL', MaterialQualificado: e.MaterialQualificado || 'Não',
+        /* 1.6.1: saldo negativo = saiu mais do que entrou (entrada faltando ou com quantidade/UM errada) */
+        StatusSaldo: saldo < 0 ? 'NEGATIVO' : saldo <= 0 ? 'ESGOTADO' : saldo < q * 0.2 ? 'BAIXO' : 'DISPONÍVEL', MaterialQualificado: e.MaterialQualificado || 'Não',
+        UMMaterial: umDoMaterial(e['CódigoMaterial'], e.UnidadeMedida), SemConversaoUM: u.semConversao.join('; '),
         NotaFiscal: e['N° NF'] || '', OPsRelacionadas: u.ops.join('; '), CustoUnitario: N(e['ValorUnitario (R$/UM)']) };
     });
   }
   window.v4047StockRows = linhasEstoque;
   window.mesLinhasEstoque = linhasEstoque;
+  /* 1.6.1 — lista de lotes do consumo (Apontamento de Produção): além da quantidade da entrada, o SALDO atual do lote
+     (o operador via só a quantidade recebida e não sabia que o lote já tinha acabado). */
+  (function () {
+    var ant = window.lotesOptionsConsumoV3814;
+    if (typeof ant !== 'function') return;
+    window.lotesOptionsConsumoV3814 = function (cod) {
+      var html = ant.apply(this, arguments);
+      try {
+        var por = {};
+        linhasEstoque().forEach(function (r) { if (r.CodigoMaterial === txt(cod)) por[r.Entrada] = r; });
+        html = String(html).replace(/<option value="([^"]+)"([^>]*)>([^<]*)<\/option>/g, function (tudo, id, attrs, rotulo) {
+          var k = id.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&'), r = por[k];
+          if (!r) return tudo;
+          return '<option value="' + id + '"' + attrs + '>' + rotulo + ' | saldo ' + esc(f4(r.Saldo) + ' ' + (r.UM || '')) + (r.Saldo < 0 ? ' (NEGATIVO)' : r.Saldo <= 0 ? ' (esgotado)' : '') + '</option>';
+        });
+      } catch (e) { }
+      return html;
+    };
+  })();
+  /* 1.6.1 — consumo do formulário do Apontamento de Produção (material, lote, retirada − devolução) × saldo do lote,
+     na UM do lote. null quando o formulário ainda não está válido (a validação continua sendo a da tela). */
+  function conferirSaldoDoConsumo() {
+    var eid = txt((el('cm_lote_v3814') || {}).value); if (!eid) return null;
+    var op = typeof selectedOP === 'function' ? selectedOP('prod_op') || {} : {};
+    if (!op.CodOP || /conclu/i.test(String(op.Status || ''))) return null;
+    var m = typeof consumoMaterialSelecionadoV3814 === 'function' ? consumoMaterialSelecionadoV3814() || {} : {};
+    var cod = txt(m.CodigoMaterial); if (!cod) return null;
+    var ret = N((el('cm_ret_v3814') || {}).value), dev = N((el('cm_dev_v3814') || {}).value);
+    if (!(ret > 0) || dev < 0 || dev > ret) return null;
+    var ent = A((D() || {}).entradas).find(function (e) { return e && txt(e.Entrada) === eid && txt(e['CódigoMaterial']) === cod; }); if (!ent) return null;
+    var umConsumo = txt(m.UM) || umDoMaterial(cod, ''), umLote = txt(ent.UnidadeMedida || ent.UM), conv = converterUM(ret - dev, umConsumo, umLote, cod);
+    var linha = linhasEstoque().find(function (r) { return r.Entrada === txt(ent.Entrada) && r.CodigoMaterial === cod; });
+    var saldo = linha ? N(linha.Saldo) : N(ent.QtdAdquirida), depois = arred(saldo - conv.q, 6);
+    return { acima: conv.q > saldo + 1e-9, entrada: txt(ent.Entrada), material: cod, saldo: saldo, umLote: umLote, q: conv.q, depois: depois,
+      mensagem: 'Consumo acima do saldo do lote ' + txt(ent.Entrada) + (txt(ent.Lote) ? ' (lote ' + txt(ent.Lote) + ')' : '') + ' de ' + cod + ':\n\n' +
+        '- consumo: ' + f4(ret - dev) + ' ' + umConsumo + (normUM(umConsumo) !== normUM(umLote) ? (conv.ok ? ' = ' + f4(conv.q) + ' ' + umLote : ' (sem conversão cadastrada para ' + umLote + ')') : '') + '\n' +
+        '- saldo do lote: ' + f4(saldo) + ' ' + umLote + '\n- saldo depois do consumo: ' + f4(depois) + ' ' + umLote + ' (negativo)\n\n' +
+        'Em geral isso indica entrada não lançada ou lançada com quantidade ou unidade errada. O consumo fica marcado como "acima do saldo" e o lote aparece como NEGATIVO no Estoque e no relatório Consistência dos dados.\n\nRegistrar mesmo assim?' };
+  }
   function reservasOPs() {
     var d = D() || {}, ctx = contextoEstoque(), plan = {}, mats = {};
     A(d.materiais).forEach(function (m) { mats[m['CódigoMaterial']] = m; });
@@ -668,10 +772,11 @@
       if (!m || !mats[m.CodigoMaterial]) return;
       if (String(m.TipoConsumo || '').toLowerCase().indexOf('pi intermedi') >= 0) return;
       var op = ctx.ops[m.CodOP]; if (!op || opFechada(op)) return;
-      var k = m.CodOP + '|' + m.CodigoMaterial;
-      if (!plan[k]) plan[k] = { CodOP: m.CodOP, CodigoMaterial: m.CodigoMaterial, Material: m.DescricaoMaterial || (mats[m.CodigoMaterial] || {}).DescricaoMateriais || '', UM: m.UM || '', Planejado: 0, LegadoConsumido: 0, Status: op.Status || '' };
-      plan[k].Planejado += N(m.QtdPlanejada || m.QtdBase || m.Qtd);
-      plan[k].LegadoConsumido += N(m.QtdConsumida || 0);
+      var k = m.CodOP + '|' + m.CodigoMaterial, umMat = txt((mats[m.CodigoMaterial] || {}).UM) || m.UM || '';
+      if (!plan[k]) plan[k] = { CodOP: m.CodOP, CodigoMaterial: m.CodigoMaterial, Material: m.DescricaoMaterial || (mats[m.CodigoMaterial] || {}).DescricaoMateriais || '', UM: umMat, Planejado: 0, LegadoConsumido: 0, Status: op.Status || '' };
+      /* 1.6.1: na UM do material (a mesma do saldo físico e do consumo) */
+      plan[k].Planejado += converterUM(N(m.QtdPlanejada || m.QtdBase || m.Qtd), m.UM, umMat, m.CodigoMaterial).q;
+      plan[k].LegadoConsumido += converterUM(N(m.QtdConsumida || 0), m.UM, umMat, m.CodigoMaterial).q;
     });
     return Object.keys(plan).map(function (k) {
       var p = plan[k], cons = ctx.consOpMat[k] !== undefined ? ctx.consOpMat[k] : p.LegadoConsumido;
@@ -679,20 +784,35 @@
     });
   }
   window.mesReservasOPs = reservasOPs;
+  /* 1.6.1 — quanto a OP já consumiu do material, na UM do material (consumo por lote; sem ele, o apontamento antigo) */
+  function consumidoNaOP(codOP, cod, ctx) {
+    ctx = ctx || contextoEstoque();
+    var k = codOP + '|' + cod;
+    if (ctx.consOpMat[k] !== undefined) return ctx.consOpMat[k];
+    var umMat = umDoMaterial(cod, '');
+    return A((D() || {}).op_materiais).reduce(function (s, m) {
+      if (!m || String(m.CodOP) !== String(codOP) || String(m.CodigoMaterial) !== String(cod) || /pi intermedi/i.test(String(m.TipoConsumo || ''))) return s;
+      return s + converterUM(N(m.QtdConsumida || 0), m.UM, umMat || m.UM, cod).q;
+    }, 0);
+  }
   function resumoMateriais(linhas, reservas) {
     var d = D() || {}, por = {};
     function item(cod, desc, um) {
       if (!por[cod]) {
         var m = materialPorCodigo(cod) || {};
         por[cod] = { CodigoMaterial: cod, Material: m.DescricaoMateriais || desc || '', UM: m.UM || um || '', Lotes: 0, LotesComSaldo: 0, Entradas: 0, ConsumidoEncerradas: 0, EmProducao: 0, Perdas: 0, AjustesSaida: 0, BaixasTecnicas: 0, SaldoFisico: 0, Reservado: 0, OPsReserva: [],
-          EstoqueMinimo: txt(m.EstoqueMinimo) === '' ? '' : N(m.EstoqueMinimo) };
+          EstoqueMinimo: txt(m.EstoqueMinimo) === '' ? '' : N(m.EstoqueMinimo), LotesSemConversao: [] };
       }
       return por[cod];
     }
     linhas.forEach(function (r) {
       var it = item(r.CodigoMaterial, r.Material, r.UM);
       it.Lotes++; if (r.Saldo > 0) it.LotesComSaldo++;
-      it.Entradas += r.QtdEntrada; it.ConsumidoEncerradas += r.ConsumoOPEncerrada; it.EmProducao += r.ConsumoOPAberta; it.Perdas += r.PerdasLote; it.AjustesSaida += r.AjusteSaida || 0; it.BaixasTecnicas += r.BaixaTecnica || 0; it.SaldoFisico += r.Saldo;
+      /* 1.6.1: o lote está na UM da entrada; a visão por material soma na UM do material */
+      var f = converterUM(1, r.UM, it.UM, r.CodigoMaterial);
+      if (!f.ok) { it.LotesSemConversao.push(r.Entrada + ' (' + f4(r.Saldo) + ' ' + (r.UM || '') + ')'); return; }
+      var k = f.q;
+      it.Entradas += r.QtdEntrada * k; it.ConsumidoEncerradas += r.ConsumoOPEncerrada * k; it.EmProducao += r.ConsumoOPAberta * k; it.Perdas += r.PerdasLote * k; it.AjustesSaida += (r.AjusteSaida || 0) * k; it.BaixasTecnicas += (r.BaixaTecnica || 0) * k; it.SaldoFisico += r.Saldo * k;
     });
     /* material com estoque mínimo e sem nenhuma entrada também aparece (saldo zero abaixo do mínimo) */
     A(d.materiais).forEach(function (m) { if (m && m['CódigoMaterial'] && N(m.EstoqueMinimo) > 0) item(m['CódigoMaterial'], m.DescricaoMateriais, m.UM); });
@@ -705,7 +825,9 @@
       var it = por[k];
       it.SaldoFisico = arred(it.SaldoFisico); it.Reservado = arred(it.Reservado);
       it.Disponivel = arred(it.SaldoFisico - it.Reservado);
+      it.Entradas = arred(it.Entradas); it.ConsumidoEncerradas = arred(it.ConsumidoEncerradas); it.EmProducao = arred(it.EmProducao); it.Perdas = arred(it.Perdas);
       it.AjustesSaida = arred(it.AjustesSaida); it.BaixasTecnicas = arred(it.BaixasTecnicas);
+      it.LotesSemConversaoUM = it.LotesSemConversao.join('; ');
       it.Status = it.Disponivel < 0 ? 'FALTA PARA AS OPs' : (it.SaldoFisico <= 0 ? 'SEM SALDO' : (it.Reservado > 0 ? 'COM RESERVA' : 'LIVRE'));
       it.SituacaoMinimo = situacaoMinimo(it.EstoqueMinimo, it.SaldoFisico, it.Disponivel);
       it.OPsComReserva = it.OPsReserva.join('; ');
@@ -722,7 +844,7 @@
   window.mesSituacaoMinimo = situacaoMinimo;
   window.mesResumoMateriaisEstoque = function () { return resumoMateriais(linhasEstoque(), reservasOPs()); };
   function tagStatus(s) {
-    var cls = /FALTA|ESGOT|SEM SALDO|ABAIXO DO M/.test(s) ? 'erro' : (/BAIXO|RESERVA|FICAR/.test(s) ? 'alerta' : 'ok');
+    var cls = /FALTA|ESGOT|SEM SALDO|ABAIXO DO M|NEGATIV/.test(s) ? 'erro' : (/BAIXO|RESERVA|FICAR/.test(s) ? 'alerta' : 'ok');
     return '<span class="mbc-tag ' + cls + '">' + esc(s) + '</span>';
   }
   (function () {
@@ -765,7 +887,13 @@
         '<div><small>Abaixo do estoque mínimo</small><b style="color:' + (mats.some(function (m) { return m.SituacaoMinimo === 'ABAIXO DO MÍNIMO'; }) ? '#a00e1c' : 'inherit') + '">' + mats.filter(function (m) { return m.SituacaoMinimo === 'ABAIXO DO MÍNIMO'; }).length + '</b></div>';
     }
     var nota = '<p class="muted" style="margin:4px 0 8px">Saldo físico = entradas − consumos apontados − perdas do lote − saídas manuais e baixas técnicas (Ajuste de Estoque). <b>Em produção</b> = já retirado para OPs ainda abertas. <b>Reservado</b> = planejado nas OPs abertas e ainda não consumido. <b>Disponível</b> = saldo físico − reservado.' +
-      (pr ? ' As reservas consideram todas as OPs abertas.' : '') + (ctx.orfaos ? ' <span class="mbc-tag alerta">' + ctx.orfaos + ' consumo(s) de OPs excluídas não entram no saldo</span>' : '') + '</p>';
+      (pr ? ' As reservas consideram todas as OPs abertas.' : '') + (ctx.orfaos ? ' <span class="mbc-tag alerta">' + ctx.orfaos + ' consumo(s) de OPs excluídas não entram no saldo</span>' : '') +
+      ' O lote fica na UM da entrada; a visão por material e as reservas, na UM do material (conversão pelo "Fator conversão para kg" quando as unidades são diferentes).' +
+      (function () {
+        var neg = linhas.filter(function (r) { return r.Saldo < 0; }).length, sem = linhas.filter(function (r) { return r.SemConversaoUM; }).length;
+        return (neg ? ' <span class="mbc-tag erro">' + neg + ' lote(s) com saldo negativo: saiu mais do que entrou — confira a entrada (quantidade e UM)</span>' : '') +
+          (sem ? ' <span class="mbc-tag alerta">' + sem + ' lote(s) com apontamento em UM sem conversão para a UM do lote — veja o relatório Consistência dos dados</span>' : '');
+      })() + '</p>';
     var th = function (cols) { return '<thead><tr>' + cols.map(function (c) { return '<th>' + c + '</th>'; }).join('') + '</tr></thead>'; };
     var html;
     if (visao === 'lote') {
@@ -773,7 +901,7 @@
         linhasF.map(function (r) {
           return '<tr><td>' + esc(r.Entrada) + '</td><td>' + esc(r.CodigoMaterial) + '</td><td>' + esc(r.Material) + '</td><td>' + esc(r.Lote) + '</td><td>' + (r.Localizacao ? esc(r.Localizacao) : '<span class="muted">—</span>') + '</td><td>' + esc(r.Fornecedor) + '</td><td>' + esc(r.Projeto) + '</td><td>' + esc(r.UM) + '</td>' +
             '<td class="mbc-num">' + f3(r.QtdEntrada) + '</td><td class="mbc-num">' + f3(r.ConsumoOPEncerrada) + '</td><td class="mbc-num">' + f3(r.ConsumoOPAberta) + '</td><td class="mbc-num">' + f3(r.PerdasLote) + '</td><td class="mbc-num">' + f3((r.AjusteSaida || 0) + (r.BaixaTecnica || 0)) + '</td><td class="mbc-num"><b>' + f3(r.Saldo) + '</b></td>' +
-            '<td>' + tagStatus(r.StatusSaldo) + '</td><td>' + esc(r.MaterialQualificado) + '</td><td>' + esc(r.NotaFiscal) + '</td><td>' + esc(r.OPsRelacionadas) + '</td></tr>';
+            '<td>' + tagStatus(r.StatusSaldo) + (r.SemConversaoUM ? '<br><span class="mbc-tag alerta" title="' + esc(r.SemConversaoUM) + '">UM sem conversão</span>' : '') + '</td><td>' + esc(r.MaterialQualificado) + '</td><td>' + esc(r.NotaFiscal) + '</td><td>' + esc(r.OPsRelacionadas) + '</td></tr>';
         }).join('') + '</tbody></table></div>';
     } else if (visao === 'reservas') {
       html = '<div class="table-wrap"><table>' + th(['OP', 'Status da OP', 'Código', 'Material', 'UM', 'Planejado', 'Já consumido', 'Reservado (a consumir)', 'Saldo físico do material']) + '<tbody>' +
@@ -786,7 +914,8 @@
         (mats.map(function (m) {
           return '<tr><td>' + esc(m.CodigoMaterial) + '</td><td>' + esc(m.Material) + '</td><td>' + esc(m.UM) + '</td><td class="mbc-num">' + m.LotesComSaldo + ' / ' + m.Lotes + '</td><td class="mbc-num">' + f3(m.Entradas) + '</td>' +
             '<td class="mbc-num">' + f3(m.ConsumidoEncerradas) + '</td><td class="mbc-num">' + f3(m.EmProducao) + '</td><td class="mbc-num">' + f3(m.Perdas) + '</td><td class="mbc-num">' + f3(m.AjustesSaida + m.BaixasTecnicas) + '</td><td class="mbc-num"><b>' + f3(m.SaldoFisico) + '</b></td>' +
-            '<td class="mbc-num">' + f4(m.Reservado) + '</td><td class="mbc-num"><b style="color:' + (m.Disponivel < 0 ? '#a00e1c' : '#0b3a5c') + '">' + f3(m.Disponivel) + '</b></td><td>' + tagStatus(m.Status) + '</td><td>' + (m.SituacaoMinimo ? f3(m.EstoqueMinimo) + '<br>' + tagStatus(m.SituacaoMinimo) : '<span class="muted">—</span>') + '</td><td style="max-width:340px">' + esc(m.OPsComReserva) + '</td></tr>';
+            '<td class="mbc-num">' + f4(m.Reservado) + '</td><td class="mbc-num"><b style="color:' + (m.Disponivel < 0 ? '#a00e1c' : '#0b3a5c') + '">' + f3(m.Disponivel) + '</b></td><td>' + tagStatus(m.Status) +
+            (m.LotesSemConversaoUM ? '<br><span class="mbc-tag alerta" title="Fora da soma: ' + esc(m.LotesSemConversaoUM) + '">lote(s) em UM sem conversão fora da soma</span>' : '') + '</td><td>' + (m.SituacaoMinimo ? f3(m.EstoqueMinimo) + '<br>' + tagStatus(m.SituacaoMinimo) : '<span class="muted">—</span>') + '</td><td style="max-width:340px">' + esc(m.OPsComReserva) + '</td></tr>';
         }).join('') || '<tr><td colspan="15">Nenhum material.</td></tr>') + '</tbody></table></div>';
     }
     box.innerHTML = nota + html;
@@ -1401,7 +1530,21 @@
     var regAnt = window.registrarConsumoMaterialV3814;
     if (typeof regAnt === 'function') {
       window.registrarConsumoMaterialV3814 = function () {
+        /* 1.6.1: consumo maior que o saldo do lote é permitido, mas só depois de confirmar o aviso; o registro fica
+           marcado (AcimaDoSaldo = Sim, saldo do lote antes) e o lote aparece como NEGATIVO. */
+        var chk = null;
+        try { chk = conferirSaldoDoConsumo(); } catch (e) { chk = null; }
+        if (chk && chk.acima && !confirm(chk.mensagem)) return;
+        var antes = A((D() || {}).consumos_materiais).length;
         var r = regAnt.apply(this, arguments);
+        try {
+          var lst = A((D() || {}).consumos_materiais), novo = lst.length > antes ? lst[lst.length - 1] : null;
+          if (chk && chk.acima && novo && txt(novo.Entrada) === chk.entrada && txt(novo.CodigoMaterial) === chk.material) {
+            novo.AcimaDoSaldo = 'Sim'; novo.SaldoLoteAntes = String(arred(chk.saldo)); novo.UMLote = chk.umLote;
+            novo.Observacoes = txt(novo.Observacoes) + (txt(novo.Observacoes) ? ' | ' : '') + 'Consumo acima do saldo do lote (saldo antes: ' + f4(chk.saldo) + ' ' + chk.umLote + '), confirmado por ' + usuario() + ' em ' + agora() + '.';
+            salvar();
+          }
+        } catch (e) { console.warn('MES LION 1.6.1: consumo acima do saldo', e); }
         setTimeout(function () { var m = el('mbc_scan_mat'); if (m) m.focus(); }, 30);
         return r;
       };
@@ -1977,7 +2120,8 @@
   window.mesEstoqueAPI = {
     linhas: linhasEstoque, reservas: reservasOPs, resumo: function () { return resumoMateriais(linhasEstoque(), reservasOPs()); },
     material: materialPorCodigo, estilo: garantirEstilo, backup: backupAntes, normalizar: normalizar, tag: tagStatus,
-    setCurrent: setCurrent, marcarNav: marcarNav, cabecalho: cabecalho, aviso: aviso, usuario: usuario, chaveCodigo: chaveCodigo
+    setCurrent: setCurrent, marcarNav: marcarNav, cabecalho: cabecalho, aviso: aviso, usuario: usuario, chaveCodigo: chaveCodigo,
+    /* 1.6.1 */ converterUM: converterUM, normUM: normUM, conferirSaldoDoConsumo: conferirSaldoDoConsumo, contexto: contextoEstoque, consumidoNaOP: consumidoNaOP
   };
   window.MES_ADAPTADOR_CODIGOS_ESTOQUE = VERSAO;
 })();

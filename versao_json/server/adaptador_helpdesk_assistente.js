@@ -17,11 +17,13 @@
        usuário em data.helpdesk_progresso;
      - "Não encontrei o que queria" grava o que a pessoa procurava e onde estava em data.helpdesk_buscas
        (o administrador vê tudo em "Equipe" e exporta para o Excel).
+     1.6.1) objetivo "Conferir se os dados estão consistentes" (relatório Consistência dos dados) nas trilhas de
+       PCP, Qualidade/ACV e Administrador.
    ===================================================================== */
 (function () {
   'use strict';
   if (window.MES_ADAPTADOR_HELPDESK_ASSISTENTE) return;
-  var VERSAO = '1.6.0';
+  var VERSAO = '1.6.1';
 
   /* ---------------------------------------------------------------------
      0) UTILITÁRIOS
@@ -573,6 +575,20 @@
     }
   });
 
+  fluxo('consistencia', {
+    titulo: 'Conferir se os dados estão consistentes (números certos)', grupo: 'Relatórios',
+    resumo: 'Relatório que aponta o que deixa algum número errado ou desatualizado — lote negativo, unidade sem conversão, OP excluída, custo gravado antigo — com o impacto e como corrigir.',
+    sinonimos: ['consistencia', 'consistencia dos dados', 'numeros errados', 'conferir dados', 'dados errados', 'saldo negativo', 'lote negativo', 'custo errado', 'co2 errado', 'auditoria dos dados', 'validar dados'],
+    inicio: 'p_cons',
+    nos: {
+      p_cons: Ps('Abrir a Consistência dos dados', { tela: 'relatorios', texto: 'No catálogo, módulo 🛡️ Auditoria › "Consistência dos dados" › "Abrir". Erro = número errado hoje; Atenção = provavelmente errado ou desatualizado; Informação = regra aplicada que vale conferir.',
+        preencher: ['Filtro de situação: Erro primeiro', 'Colunas "Impacto nos números" e "Como corrigir"'], destino: 'Prévia na tela e Excel (o relatório só lê: não corrige nada sozinho).', prox: 'p_corr' }),
+      p_corr: Ps('Corrigir na origem e conferir de novo', { texto: 'Corrija cada item na tela da coluna Módulo (entrada de materiais, cadastro de materiais, recursos, OP, perdas) e abra o relatório de novo. Custo e CO₂ gravados de OP encerrada só mudam reabrindo e encerrando a OP.',
+        erros: ['Corrigir o número no Excel em vez de corrigir o dado no MES.'], prox: 'fim' }),
+      fim: E({ checklist: ['Nenhum Erro na lista', 'Atenções conferidas', 'Custos e CO₂ gravados atualizados'], proximos: ['relatorio', 'saldo_estoque'] })
+    }
+  });
+
   fluxo('dossie', {
     titulo: 'Gerar o dossiê da OP', grupo: 'Relatórios',
     resumo: 'Uma planilha com tudo da OP ou da família: produção, etiquetas, lotes, PIs, tempos, perdas, custo, CO₂ e rastreabilidade.',
@@ -627,10 +643,10 @@
 
   var TRILHAS = [
     { id: 'Operador', icone: '👷', desc: 'Receber material, apontar a produção, consumir lotes e PIs, registrar perdas.', fluxos: ['entrada_material', 'saldo_estoque', 'apontar_producao', 'consumir_materiais', 'registrar_perda', 'ajuste_estoque'] },
-    { id: 'PCP', icone: '📅', desc: 'Abrir OPs, MRP, capacidade, calendário, encerramento e custos.', fluxos: ['abrir_op', 'mrp', 'carga_capacidade', 'calendario', 'apontar_producao', 'encerrar_op', 'inventario', 'custo_op', 'relatorio'] },
+    { id: 'PCP', icone: '📅', desc: 'Abrir OPs, MRP, capacidade, calendário, encerramento e custos.', fluxos: ['abrir_op', 'mrp', 'carga_capacidade', 'calendario', 'apontar_producao', 'encerrar_op', 'inventario', 'custo_op', 'relatorio', 'consistencia'] },
     { id: 'Engenharia', icone: '🧩', desc: 'Cadastros-base: processos, materiais, máquinas, estrutura, roteiro e formulação.', fluxos: ['cad_processo', 'cad_material', 'cad_equipamento', 'cad_estrutura', 'roteiro', 'formulacao', 'abrir_op'] },
-    { id: 'Qualidade/ACV', icone: '🌱', desc: 'Perdas, encerramento, custo, pegada de carbono, passaporte e dossiê.', fluxos: ['registrar_perda', 'encerrar_op', 'custo_op', 'calcular_acv', 'passaporte', 'dossie', 'historico'] },
-    { id: 'Administrador', icone: '🔐', desc: 'Usuários, cópia de segurança, histórico, cadastros e inventário.', fluxos: ['usuarios', 'backup', 'historico', 'cad_processo', 'cad_material', 'cad_equipamento', 'inventario', 'relatorio'] }
+    { id: 'Qualidade/ACV', icone: '🌱', desc: 'Perdas, encerramento, custo, pegada de carbono, passaporte e dossiê.', fluxos: ['registrar_perda', 'encerrar_op', 'custo_op', 'calcular_acv', 'passaporte', 'dossie', 'historico', 'consistencia'] },
+    { id: 'Administrador', icone: '🔐', desc: 'Usuários, cópia de segurança, histórico, cadastros e inventário.', fluxos: ['usuarios', 'backup', 'historico', 'cad_processo', 'cad_material', 'cad_equipamento', 'inventario', 'relatorio', 'consistencia'] }
   ];
   function trilha(id) { return TRILHAS.find(function (t) { return t.id === id; }) || null; }
   /* as trilhas são a fonte: cada objetivo sabe em quais trilhas está */

@@ -86,12 +86,12 @@ servida:
 |---|---|---|
 | `adaptador_frontend.js` | `mes-adaptador-json` | 1.0.0 (calendário por máquina na 1.4.0) |
 | `adaptador_passaporte.js` | `mes-adaptador-passaporte` | 1.1.0 |
-| `adaptador_codigos_estoque.js` | `mes-adaptador-codigos-estoque` | 1.2.0 / 1.3.0 |
-| `adaptador_estoque_ajustes.js` | `mes-adaptador-estoque-ajustes` | 1.3.0 |
-| `adaptador_apontamento_pi.js` | `mes-adaptador-apontamento-pi` | 1.4.0 |
-| `adaptador_relatorios.js` | `mes-adaptador-relatorios` | 1.5.0 |
+| `adaptador_codigos_estoque.js` | `mes-adaptador-codigos-estoque` | 1.2.0 / 1.3.0 / 1.6.0 / 1.6.1 |
+| `adaptador_estoque_ajustes.js` | `mes-adaptador-estoque-ajustes` | 1.3.0 / 1.6.1 |
+| `adaptador_apontamento_pi.js` | `mes-adaptador-apontamento-pi` | 1.4.0 / 1.6.1 |
+| `adaptador_relatorios.js` | `mes-adaptador-relatorios` | 1.5.0 / 1.6.1 |
 | `adaptador_recursos_importacao.js` | `mes-adaptador-recursos-importacao` | 1.6.0 |
-| `adaptador_helpdesk_assistente.js` | `mes-adaptador-helpdesk-assistente` | 1.6.0 |
+| `adaptador_helpdesk_assistente.js` | `mes-adaptador-helpdesk-assistente` | 1.6.0 / 1.6.1 |
 
 Correções de `adaptador_frontend.js`:
 
@@ -291,7 +291,7 @@ o ponto como milhar fica só em `numDigitado()` (texto digitado).
 `adaptador_helpdesk_assistente.js` (1.6.0) — **Assistente passo a passo** no Help Desk (`openHelpDeskV40` ganha as abas
 "Assistente passo a passo" e "Fluxo de integração dos módulos"; o iframe original continua na segunda):
 
-33. **Objetivos** (26, em 7 grupos): nós `pergunta` (texto, ajuda, checagem `chk`, `decide` = a checagem sugere a
+33. **Objetivos** (27, em 7 grupos; 1.6.1: `consistencia`): nós `pergunta` (texto, ajuda, checagem `chk`, `decide` = a checagem sugere a
     resposta, `sim`/`nao`), `passo` (tela = chave do `render`, botão a destacar, `ctx` = OP pré-selecionada, o que
     preencher, obrigatório, destino dos dados, erros comuns, `prox`) e `fim` (checklist, próximos objetivos).
     Destino `{ fluxo, volta }` faz antes outro objetivo e volta (pilha); `validar()` confere destinos, alcance, fim de
@@ -311,6 +311,51 @@ o ponto como milhar fica só em `numDigitado()` (texto digitado).
 38. **API para testes**: `window.mesHelpDeskAPI` (`fluxos`, `fluxo`, `trilhas`, `grupos`, `telas`, `validar`, `buscar`,
     `checar`, `destacar`, `estado`, `iniciar`, `responder`, `feito`, `progresso`, `sair`).
 
+### Revisão dos cálculos (1.6.1)
+
+Regras corrigidas depois da conferência de todos os cálculos na base real (os dados da 1.6.0 são lidos sem conversão):
+
+39. **OP encerrada só com o consumo real** (`adaptador_apontamento_pi.js`, seção 10 d): `auditCostFamilyV4014` (e os
+    apelidos `V3822`/`V3819`) passa por `regraOPEncerradaNoCusto` — em OP encerrada ou cancelada a linha
+    "Projetado — média ponderada…" fica com `Quantidade` 0, `QtdPlanejada` = planejado, `Resultado` 0 e origem
+    "Planejado sem consumo apontado — fora do custo (OP encerrada)", e o resumo desconta o valor (`PlanejadoForaDoCusto`
+    lista os itens); apontamento antigo sem lote (`QtdConsumida` sem `consumos_materiais`) conta como consumo. Na ACV,
+    `qtdMaterialLinhaV391` passa a `qtdMaterialACV`: consumo por lote conta uma vez por OP e material (a V39.x copiava
+    o total para cada linha do material), OP encerrada só com o real, OP aberta sem consumo com o planejado (uma vez por
+    material/etapa/recurso, como no custo). O encerramento (`avisosAntesDeEncerrar`) lista os materiais planejados sem
+    consumo (`materiaisSemConsumo`). Como o custo fechado é gravado no encerramento, ele também segue a regra.
+40. **Custo por OP** (seção 10 e): `custosOP` mantém os materiais projetados × efetivos e troca `processo` por energia +
+    MOD das etapas da própria OP em `v4033AuditCostPI(cod)` (a mesma conta do custo da família); devolve também
+    `energia`, `mod`, `energiaKWh` e `perdas` (linhas de perda da OP), `total` = materiais projetados + processo e
+    `totalEfetivo` = materiais efetivos + processo + perdas. A soma das OPs fecha com a família.
+41. **Unidade no estoque** (`adaptador_codigos_estoque.js`): `converterUM(q, de, para, material)` — massa, volume,
+    comprimento e contagem por grupo; entre a UM do material e kg pelo "Fator conversão para kg" (ida e volta, também
+    mL → L → kg); `ok = false` sem regra. `usoEntrada` converte consumo (`UM`/`UMConsumo`), apontamento antigo (`UM`)
+    e perda (`Unidade`/`UM`) para a UM do lote (`SemConversaoUM` lista o que não converteu); `contextoEstoque`,
+    `reservasOPs` e `resumoMateriais` trabalham na UM do material (lote sem conversão fica fora da soma, em
+    `LotesSemConversaoUM`). `qtdEntradaNaUMMaterialV3822` (base do custo unitário do lote e da média ponderada) usa a
+    mesma conversão quando ela existe. `StatusSaldo` `NEGATIVO` para saldo < 0. `lotesOptionsConsumoV3814` acrescenta o
+    saldo atual de cada lote. `registrarConsumoMaterialV3814` confere o consumo do formulário contra o saldo do lote
+    (`conferirSaldoDoConsumo`, na UM do lote): acima do saldo só registra depois do `confirm` e marca o registro
+    (`AcimaDoSaldo` = Sim, `SaldoLoteAntes`, `UMLote`, observação). `mesEstoqueAPI` ganha `converterUM`, `normUM`,
+    `conferirSaldoDoConsumo`, `contexto` e `consumidoNaOP`.
+42. **MRP** (`adaptador_estoque_ajustes.js`): `window.mesNecessidadesMRP(ops)` — por OP e material, planejado (na UM do
+    material) − já consumido na OP (`consumidoNaOP`), sem ficar negativo; `Planejado`, `JaConsumido`, `PorOP` e
+    `NecessidadeBruta`. Usada pela tela MRP (memória de cálculo por OP) e pelo relatório `pcp_mrp` (colunas Planejado e
+    Já consumido).
+43. **Consistência dos dados** (`adaptador_relatorios.js`, relatório `aud_consistencia`, módulo Auditoria): colunas
+    Gravidade (Erro / Atenção / Informação), Verificação, Módulo, Registro, O que foi encontrado, Impacto nos números e
+    Como corrigir; resumo por gravidade. Só leitura (passa pelo `semGravar` como os outros). Verificações: lote com
+    saldo negativo; apontamento sem conversão para a UM do lote; consumo confirmado acima do saldo; entrada de material
+    sem cadastro, com UM diferente da do material (com ou sem conversão), sem quantidade ou sem valor; perda de
+    material sem lote (fora de "dentro do consumo") e perda sem motivo; registros de OPs excluídas por coleção,
+    agrupados pela família; passaporte com OP inexistente; código de equipamento com nomes diferentes; potência
+    > 50.000 W (com os kWh desse equipamento nas famílias); tarifa de energia: nenhuma, várias ou diferente no cadastro
+    de recursos; `QtdProduzida` ≠ soma dos apontamentos; por família (as mesmas funções das telas, sem gravar): custo e
+    CO₂ gravados × atuais (Atenção acima de 0,5%, Informação abaixo), materiais sem fator de CO₂ ou de kg, energia sem
+    fator, etapa sem tempo ou sem potência, etapa com mais de 25% (e 100 kWh) da energia da família e OP encerrada com
+    material planejado sem consumo. `custo_op` ganha as colunas Energia, Mão de obra, kWh e Perdas.
+
 ## Testes (CI: job `versao-json`, Windows PowerShell 5.1 real)
 
 | Suíte | O que confere |
@@ -321,11 +366,11 @@ o ponto como milhar fica só em `numDigitado()` (texto digitado).
 | `tests/teste_migracao_json.py` | PostgreSQL real (schema original) → `IMPORTAR_POSTGRESQL.ps1` → servidor JSON: senhas antigas, estado idêntico, histórico completo, documentos byte a byte |
 | `tests/teste_capacidade_json.py` | Capacidade e Carga V1 no navegador: botões no Cadastro de Recursos, capacidade e histórico gravados no servidor, relatório após F5 |
 | `tests/teste_calendario_json.py` | Calendário de Produção: tela estável, "Editar dia" com clique real do mouse (liberar sábado, bloquear dia útil), sugestão de programação e "Projetar sequência" sem operações em dias indisponíveis, trechos gravados e mantidos após F5, programação da versão anterior, "Validar conflitos", "Recalcular programação", "Limpar datas", carga do relatório Carga × capacidade, MRP > "Abrir OPs", histórico (OP concluída e apontamentos de tempo em cinza, gravados no servidor, mantidos após "Limpar datas" e F5) |
-| `tests/teste_passaporte_json.py` | biblioteca GWP100 e banco LCI sem repetição; versão ativa nos cálculos; template `.xlsx` com exemplo e importação (`.xlsx` do Excel, CSV, erros, `.xls` binário); passaporte: campos únicos sem obrigatório, marcas "painel", dados puxados da OP (estrutura, ACV da família e AICV, massas úteis), rascunho com OP aberta, painel do cliente e HTML do QR, alteração à mão mantida, passaporte antigo, F5, PDF interno |
-| `tests/teste_apontamento_pi_json.py` | 1.4.0: correção da QtdProduzida e baixa única das famílias encerradas; motivos de perda (duplicado, parecido, lista, importação); fluxo de PIs no roteiro (validação, sugestão, cópia) e Estrutura em níveis; PI nas OPs abertas; etiquetas (kg, N por etiqueta, por unidade, aglutinada, impressão); consumo de PI pela etiqueta, perda na etapa, saldo insuficiente, estorno; origem da perda (PI e material com lote); custo/CO₂ sem dupla contagem; PI isolado com custo herdado; tempo por máquina (intervalo, iniciar/finalizar, sobreposição, energia) e calendário por máquina; baixa automática no encerramento; estoque PI/PA (saldos, etiquetas, rastreio, baixa/estorno, cancelamento, conferência); exclusão bloqueada; servidor e F5 |
-| `tests/teste_relatorios_json.py` | 1.5.0: menu e catálogo (busca, módulo); todos os relatórios executam e abrem na tela; nenhum dado alterado nem gravado ao executar; números = funções das telas (saldo por lote e por material, livro PI/PA, produção, tempo planejado e tempo real gravado na etapa, Pareto, carga × capacidade, MRP, custo e CO₂ da família); saída e estorno do Ajuste de Estoque no relatório e no saldo do lote; filtros (período, OP, produto sem acento, situação, busca), colunas e ordem; `.xlsx` baixado pela tela conferido com openpyxl (tipos, formatos, unidade no cabeçalho, SUBTOTAL, filtro, painel, Parâmetros); histórico das exportações; modelos (salvar, substituir, abrir, exportar, excluir, servidor); dossiê (abas, resumo, custo/CO₂, rastreabilidade, só a OP) |
+| `tests/teste_passaporte_json.py` | 1.6.1: massas úteis da ACV calculada agora (sem o planejado sem consumo da OP encerrada). Biblioteca GWP100 e banco LCI sem repetição; versão ativa nos cálculos; template `.xlsx` com exemplo e importação (`.xlsx` do Excel, CSV, erros, `.xls` binário); passaporte: campos únicos sem obrigatório, marcas "painel", dados puxados da OP (estrutura, ACV da família e AICV, massas úteis), rascunho com OP aberta, painel do cliente e HTML do QR, alteração à mão mantida, passaporte antigo, F5, PDF interno |
+| `tests/teste_apontamento_pi_json.py` | 1.6.1: encerramento avisa o material planejado sem consumo, que fica com R$ 0 no custo e fora da ACV (OP aberta segue projetada); lista de lotes com o saldo; consumo acima do saldo (sem confirmar não grava; confirmado, marcado e lote NEGATIVO, gravado no servidor); MRP e reserva descontando o já consumido; conversão de UM (L → kg pelo fator, g → kg, un → kg, sem regra); aviso de saldo negativo na tela. 1.4.0: correção da QtdProduzida e baixa única das famílias encerradas; motivos de perda (duplicado, parecido, lista, importação); fluxo de PIs no roteiro (validação, sugestão, cópia) e Estrutura em níveis; PI nas OPs abertas; etiquetas (kg, N por etiqueta, por unidade, aglutinada, impressão); consumo de PI pela etiqueta, perda na etapa, saldo insuficiente, estorno; origem da perda (PI e material com lote); custo/CO₂ sem dupla contagem; PI isolado com custo herdado; tempo por máquina (intervalo, iniciar/finalizar, sobreposição, energia) e calendário por máquina; baixa automática no encerramento; estoque PI/PA (saldos, etiquetas, rastreio, baixa/estorno, cancelamento, conferência); exclusão bloqueada; servidor e F5 |
+| `tests/teste_relatorios_json.py` | 1.6.1: Custo por OP (energia + MOD das OPs = família; total efetivo das OPs = custo da família; colunas novas), família encerrada só com o consumo real, MRP com planejado e já consumido, Consistência dos dados (verificações esperadas na base de teste, lotes negativos e códigos repetidos, ordem e resumo); saldo por material = soma dos lotes convertidos. 1.5.0: menu e catálogo (busca, módulo); todos os relatórios executam e abrem na tela; nenhum dado alterado nem gravado ao executar; números = funções das telas (saldo por lote e por material, livro PI/PA, produção, tempo planejado e tempo real gravado na etapa, Pareto, carga × capacidade, MRP, custo e CO₂ da família); saída e estorno do Ajuste de Estoque no relatório e no saldo do lote; filtros (período, OP, produto sem acento, situação, busca), colunas e ordem; `.xlsx` baixado pela tela conferido com openpyxl (tipos, formatos, unidade no cabeçalho, SUBTOTAL, filtro, painel, Parâmetros); histórico das exportações; modelos (salvar, substituir, abrir, exportar, excluir, servidor); dossiê (abas, resumo, custo/CO₂, rastreabilidade, só a OP) |
 | `tests/teste_importacao_recursos_json.py` | 1.6.0: botão e tela; modelo em branco conferido com openpyxl (abas, grupos mesclados, painel, listas suspensas e nomes, Listas, exemplos tipados, Instruções); exemplos ignorados; validação (código automático, novo processo herdando do cadastro, atualização sem acento, listas, capacidade com padrões e uma vez por código); importação gravada no servidor (recursos + cadastro ligados, custos, capacidade e histórico, registro e auditoria); mesma planilha de novo sem duplicar; modelo com os cadastrados de volta sem mudança (códigos repetidos, `0,80`, espaço no fim); erros que bloqueiam e planilha de erros (e subir de novo); CSV com nomes dos campos; "Atualizar" desmarcado; troca de código e processo pelo ID; desfazer (exato, linha alterada depois, equipamento em roteiro) |
-| `tests/teste_helpdesk_assistente_json.py` | 1.6.0: estrutura dos 26 objetivos e trilhas; todas as telas dos passos abrem e os botões destacados existem; abas do Help Desk (fluxo antigo preservado); "Nesta tela"; busca com sinônimos; "não encontrei" gravado; trilha e progresso por usuário; checagem e sugestão; desvio e volta; voltar; checklist; ir para a tela, destaque e assistente no canto; OP pré-selecionada; continuar depois de recarregar; equipe e Excel (ADMIN); usuário comum |
+| `tests/teste_helpdesk_assistente_json.py` | 1.6.0/1.6.1: estrutura dos 27 objetivos e trilhas; todas as telas dos passos abrem e os botões destacados existem; abas do Help Desk (fluxo antigo preservado); "Nesta tela"; busca com sinônimos; "não encontrei" gravado; trilha e progresso por usuário; checagem e sugestão; desvio e volta; voltar; checklist; ir para a tela, destaque e assistente no canto; OP pré-selecionada; continuar depois de recarregar; equipe e Excel (ADMIN); usuário comum |
 | `tests/teste_gerar_pacote_json.py` | `.zip` para outros usuários com dados, sem backups/logs |
 | `tests/teste_redefinir_senha_json.py` | `REDEFINIR_SENHA.bat`: nova senha PBKDF2, reativação, senhas que não conferem |
 

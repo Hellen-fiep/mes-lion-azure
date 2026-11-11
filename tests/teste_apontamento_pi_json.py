@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Teste no navegador da versão JSON 1.4.0 (server/adaptador_apontamento_pi.js):
+Teste no navegador da versão JSON 1.4.0 (server/adaptador_apontamento_pi.js) e das regras da 1.6.1:
   - atualização dos dados: QtdProduzida = soma dos apontamentos (o lançamento antigo contava o último duas vezes) e
     baixa única dos PIs das famílias já encerradas (o lote de PI não fica com saldo cheio depois de virar PA);
   - motivos de perda: cadastro sem duplicidade (acento/maiúscula), aviso de motivo parecido, lista suspensa no Registro
@@ -15,7 +15,10 @@ Teste no navegador da versão JSON 1.4.0 (server/adaptador_apontamento_pi.js):
   - tempo por máquina (intervalo, iniciar/finalizar, sobreposição bloqueada) e o tempo real na energia da OP;
   - baixa automática do PI da família no encerramento da OP consumidora;
   - custo e CO₂ sem dupla contagem de perdas; estoque de PI e PA (saldos, etiquetas, baixa/estorno, cancelamento,
-    rastreio, conferência); exclusão de produção com etiqueta consumida bloqueada.
+    rastreio, conferência); exclusão de produção com etiqueta consumida bloqueada;
+  - 1.6.1: OP encerrada só com o consumo real no custo e na ACV (aviso no encerramento), consumo acima do saldo do lote
+    com confirmação e marca, lote NEGATIVO, saldo do lote na lista de lotes, conversão de UM no estoque e MRP/reservas
+    descontando o já consumido.
 
 Uso: python teste_apontamento_pi_json.py <url_base>
 """
@@ -107,7 +110,7 @@ async def main():
               v403: (typeof v403SaldoLote === 'function') ? v403SaldoLote({{IdLotePI: 'LPI-20260812094138-01', QuantidadeProduzida: '0,8956'}}) : null,
               nav: ['nav_perdas_motivos', 'nav_estoque_pi_pa'].map(id => !!document.getElementById(id)) }};
         }}""")
-        ok(ini['v'] == '1.4.0', 'adaptador 1.4.0 carregado', ini['v'])
+        ok(ini['v'] == '1.6.1', 'adaptador 1.6.1 (apontamento por máquina e PIs; regras de custo da 1.6.1) carregado', ini['v'])
         ok(len(ini['cor']) == 7 and ini['q01'] == '0,8956' and all(float(a.replace(',', '.')) == 2 * float(d.replace(',', '.')) for _, a, d in ini['cor']),
            'QtdProduzida corrigida para a soma dos apontamentos nas 7 OPs em que o último apontamento estava dobrado', ini['cor'])
         ok(len(ini['leg']) == 7 and all(c[0] == FAM_FECHADA + '-PA' for c in ini['leg']) and all(s == 0 for _, s in ini['saldosPI']) and ini['saldoPA'] == 1,
@@ -471,6 +474,18 @@ async def main():
                      saldo: L.lotes[mesApontamentoPI14.idLote(data.op.find(o => o.CodOP === '{OP02}'))].Saldo }}; }})()""")
         ok(re.search('conclu', bx['st'] or '', re.I) and bx['c'] == [['PI0002', 1.4848, OP02]] and perto(bx['saldo'], 0.0152), 'OP de coating encerrada sem apontar o slurry: baixa automática do planejado (1,4848 de 1,5 kg; sobra 0,0152)', bx)
         ok(any('Baixa automática' in d for d in dialogos), 'o encerramento avisa a baixa automática', dialogos[-2:])
+        # 1.6.1: OP encerrada só com o consumo real (custo e CO₂)
+        ok(any('Material planejado sem consumo apontado nesta OP' in d and 'MP0014' in d and 'fora do custo' in d for d in dialogos),
+           '1.6.1: o encerramento avisa o material planejado sem consumo (MP0014, 1,72 m), que fica fora do custo e do CO₂', dialogos[-3:])
+        r161 = await ev(f"""(() => {{ const a = auditCostFamilyV4014('{OPPA}'), m = a.materiais.find(x => x.OP === '{OP04}' && x.CodigoMaterial === 'MP0014') || {{}};
+            const m3 = a.materiais.find(x => x.OP === '{OP03}' && x.CodigoMaterial === 'MP0013') || {{}}, cons3 = data.consumos_materiais.some(c => c.CodOP === '{OP03}' && c.CodigoMaterial === 'MP0013');
+            const acv = JSON.parse(calcSustFamiliaOPV33('{OPPA}', false, {{}}).AuditoriaCO2JSON || '[]');
+            return {{ m: [m.Quantidade, m.QtdPlanejada, m.Resultado, m['Origem custo']], m3: [m3['Origem custo'] || '', m3.Resultado, cons3], st3: data.op.find(o => o.CodOP === '{OP03}').Status,
+                     acv04: acv.filter(x => x.Tipo === 'CONSUMO' && x.OP === '{OP04}' && x.CodigoMaterial === 'MP0014').length, acv03: acv.filter(x => x.Tipo === 'CONSUMO' && x.OP === '{OP03}' && x.CodigoMaterial === 'MP0013').length }}; }})()""")
+        ok(r161['m'][0] == 0 and perto(r161['m'][1], 1.72) and r161['m'][2] == 0 and 'fora do custo' in r161['m'][3] and r161['acv04'] == 0,
+           '1.6.1: OP -04 encerrada: MP0014 planejado sem consumo fica com valor 0 no custo e sai da ACV', r161)
+        ok(not re.search('conclu', r161['st3'] or '', re.I) and not r161['m3'][2] and r161['m3'][0].startswith('Projetado') and r161['m3'][1] > 0 and r161['acv03'] == 1,
+           '1.6.1: OP -03 ainda aberta continua com o custo projetado do MP0013 (e na ACV)', r161)
 
         # ------------------------------------------------------------------ estoque de PI e PA
         await ev("render('estoque_pi_pa')")
@@ -525,9 +540,46 @@ async def main():
         await page.wait_for_timeout(400)
         ok(any('Estorne' in d for d in dialogos) and await ev(f"data.producao.filter(p => p.CodOP === '{OP01}').length") == 1, 'exclusão de produção com etiqueta já consumida é bloqueada', dialogos[-1:])
 
+        # ------------------------------------------------------------------ 1.6.1: consumo acima do saldo do lote, UM no estoque, MRP
+        await tela_producao(OP01)
+        await ev("""(() => { const s = document.getElementById('cm_mat_v3814'); const i = [...s.options].findIndex(o => /MP0001/.test(o.textContent)); s.value = s.options[i].value; atualizarLotesConsumoV3814(); })()""")
+        await page.wait_for_timeout(300)
+        opc = await ev("[...document.getElementById('cm_lote_v3814').options].map(o => [o.value, o.textContent])")
+        en1 = next((t for v, t in opc if v == 'EN0001'), '')
+        ok('saldo 0,4091 kg' in en1, '1.6.1: a lista de lotes do consumo mostra o saldo atual do lote (EN0001: 0,4091 kg)', opc)
+        await ev("document.getElementById('cm_lote_v3814').value = 'EN0001'; document.getElementById('cm_ret_v3814').value = '0.5'; document.getElementById('cm_dev_v3814').value = '0'")
+        n0 = await ev("data.consumos_materiais.length")
+        msg = await ev("""(() => { const c = window.confirm; let m = null; window.confirm = x => { m = x; return false; }; try { registrarConsumoMaterialV3814(); } finally { window.confirm = c; } return m; })()""")
+        n1 = await ev("data.consumos_materiais.length")
+        ok(msg and 'Consumo acima do saldo do lote EN0001' in msg and 'saldo do lote: 0,4091 kg' in msg and '-0,0909 kg' in msg and n1 == n0,
+           '1.6.1: consumo maior que o saldo do lote pede confirmação; sem confirmar, nada é registrado', (msg, n0, n1))
+        await ev("registrarConsumoMaterialV3814()")
+        await page.wait_for_timeout(900)
+        c161 = await ev(f"""(() => {{ const c = data.consumos_materiais[data.consumos_materiais.length - 1], l = mesLinhasEstoque().find(x => x.Entrada === 'EN0001');
+            const z = mesNecessidadesMRP([data.op.find(o => o.CodOP === '{OP01}')]).find(x => x.Item === 'MP0001') || {{}};
+            const res = mesReservasOPs().find(x => x.CodOP === '{OP01}' && x.CodigoMaterial === 'MP0001') || {{}};
+            return {{ c: [c.CodOP, c.CodigoMaterial, c.Entrada, c.AcimaDoSaldo, c.SaldoLoteAntes, c.ConsumoLiquido], l: [l.Saldo, l.StatusSaldo],
+                     z: [z.Planejado, z.JaConsumido, z.NecessidadeBruta], res: [res.Planejado, res.Consumido, res.Reservado] }}; }})()""")
+        ok(c161['c'] == [OP01, 'MP0001', 'EN0001', 'Sim', '0.4091', '0.5'] and perto(c161['l'][0], -0.0909) and c161['l'][1] == 'NEGATIVO',
+           '1.6.1: confirmado, o consumo fica marcado (acima do saldo, saldo antes 0,4091 kg) e o lote aparece NEGATIVO', c161)
+        ok(perto(c161['z'][0], 0.4478) and perto(c161['z'][1], 0.5) and c161['z'][2] == 0 and perto(c161['res'][1], 0.5) and c161['res'][2] == 0,
+           '1.6.1: MRP e reserva da OP -01 descontam o que ela já consumiu (planejado 0,4478 − consumido 0,5 → nada a consumir)', c161)
+        uml = await ev("""(() => { const l = mesLinhasEstoque().find(x => x.Entrada === 'EN0016'), m = mesResumoMateriaisEstoque().find(x => x.CodigoMaterial === 'MP0016');
+            return [l.Saldo, l.UM, m.SaldoFisico, m.UM, mesEstoqueAPI.converterUM(1, 'kg', 'L', 'MP0016').q, mesEstoqueAPI.converterUM(500, 'g', 'kg', 'MP0001').q,
+                    mesEstoqueAPI.converterUM(2, 'un', 'kg', 'MP0018').q, mesEstoqueAPI.converterUM(1, 'L', 'm', 'MP0016').ok]; })()""")
+        ok(perto(uml[0], 0.832) and uml[1] == 'kg' and perto(uml[2], 0.832 / 1.12) and uml[3] == 'L' and perto(uml[4], 1 / 1.12) and perto(uml[5], 0.5) and perto(uml[6], 0.44) and uml[7] is False,
+           '1.6.1: consumo em L desconta do lote em kg pelo fator do material (EN0016: 1 − 0,15 L × 1,12 = 0,832 kg; 0,7429 L na visão por material); sem regra, não converte', uml)
+        await ev("render('estoque')")
+        await page.wait_for_timeout(800)
+        await ev("mesEstoqueVisao('lote')")
+        await page.wait_for_timeout(400)
+        tx = await page.inner_text('#v47_stock_tbl')
+        ok('NEGATIVO' in tx and 'saldo negativo' in tx, '1.6.1: o Estoque mostra o lote NEGATIVO e o aviso de saldo negativo', tx[:300])
+
         # ------------------------------------------------------------------ servidor
         d, sim = await esperar_servidor(lambda d: len(d.get('etiquetas_producao') or []) == 45 and any(c.get('Origem') == 'BAIXA_AUTOMATICA_ENCERRAMENTO' for c in d.get('op_pi_consumos') or [])
                                         and len(d.get('roteiro_pi_entradas') or []) >= 14 and len(d.get('perdas_motivos') or []) >= 2)
+        ok(any(c.get('AcimaDoSaldo') == 'Sim' and c.get('Entrada') == 'EN0001' for c in (d or {}).get('consumos_materiais') or []), '1.6.1: consumo acima do saldo gravado no servidor com a marca', '')
         ok(sim, 'etiquetas, consumos de PI, fluxo do roteiro e motivos gravados no servidor',
            (len((d or {}).get('etiquetas_producao') or []), len((d or {}).get('roteiro_pi_entradas') or []), len((d or {}).get('perdas_motivos') or [])))
 

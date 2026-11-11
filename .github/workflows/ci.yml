@@ -591,7 +591,7 @@ jobs:
           }
           exit $codigo
 
-      - name: Navegador (E2E, primeira tela, Capacidade e Carga, Calendário de Produção, Passaporte, Apontamento/PIs 1.4.0, Relatórios 1.5.0, Importação de equipamentos e Help Desk 1.6.0) — servidor no Windows PowerShell 5.1
+      - name: Navegador (E2E, primeira tela, Capacidade e Carga, Calendário de Produção, Passaporte, Apontamento/PIs 1.4.0 e regras 1.6.1, Relatórios 1.5.0 e Consistência 1.6.1, Importação de equipamentos e Help Desk 1.6.0) — servidor no Windows PowerShell 5.1
         shell: pwsh
         timeout-minutes: 65
         run: |

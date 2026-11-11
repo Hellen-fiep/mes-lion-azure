@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $VersaoMes = 'MES LION 1.0 JSON'
-$VersaoServidor = '1.6.0 (2026-11-10)'
+$VersaoServidor = '1.6.1 (2026-11-11)'
 $EhPS7 = $PSVersionTable.PSVersion.Major -ge 6
 $EhWindows = ($env:OS -eq 'Windows_NT')
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -975,10 +975,11 @@ function Ler-Multipart($req) {
 #                             Kanban arrastavel no Calendario de Testes de Caracterizacao
 #   adaptador_apontamento_pi.js - apontamento de tempo por maquina, PIs que entram em cada operacao do roteiro (insumo
 #                             da OP, consumo e perda pela etiqueta/lote), etiquetas de PI/PA, estoque de PI e PA,
-#                             motivos de perda cadastrados e regras de calculo sem dupla contagem
+#                             motivos de perda cadastrados e regras de calculo sem dupla contagem; 1.6.1: OP encerrada
+#                             so com o consumo real no custo e no CO2 (aviso no encerramento) e custo por OP pelas etapas
 #   adaptador_relatorios.js - menu Relatorios: catalogo de relatorios dos modulos (filtros, colunas, previa, Excel
 #                             .xlsx com a aba Parametros, modelos salvos) e Dossie da OP; cada exportacao vai para o
-#                             historico (POST /api/relatorios/exportacao)
+#                             historico (POST /api/relatorios/exportacao); 1.6.1: Auditoria > Consistencia dos dados
 #   adaptador_recursos_importacao.js - importacao de equipamentos por planilha em Recursos / Maquinas: modelo .xlsx
 #                             (instrucoes, listas suspensas, exemplos ou os equipamentos cadastrados), validacao linha a
 #                             linha, importacao com copia de seguranca e desfazer (POST /api/recursos/importacao)

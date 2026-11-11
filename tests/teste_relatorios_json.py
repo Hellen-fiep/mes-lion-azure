@@ -143,7 +143,7 @@ async def main():
         ini = await ev("""() => ({ v: window.MES_ADAPTADOR_RELATORIOS, api: !!window.mesRelatoriosAPI,
             grupos: Array.from(document.querySelectorAll('nav details summary b')).map(b => b.textContent.trim()),
             itens: ['relatorios', 'relatorios_dossie', 'relatorios_modelos'].map(k => { const b = document.getElementById('nav_' + k); return b ? b.textContent.trim() : null; }) })""")
-        ok(ini['v'] == '1.5.0' and ini['api'], 'adaptador 1.5.0 (relatórios) carregado', ini)
+        ok(ini['v'] == '1.6.1' and ini['api'], 'adaptador 1.6.1 (relatórios) carregado', ini)
         g = ini['grupos']
         ok('Relatórios' in g and ini['itens'] == ['Catálogo de relatórios', 'Dossiê da OP', 'Meus modelos'] and ('Administração' not in g or g.index('Relatórios') == g.index('Administração') - 1),
            'menu "Relatórios" com Catálogo, Dossiê da OP e Meus modelos (antes de Administração)', ini)
@@ -183,6 +183,33 @@ async def main():
         ok(not [e for e in escritas if '/api/' in e[1]], 'executar os relatórios não grava nada no servidor', escritas[:5])
         print('     linhas por relatório:', {k: v.get('n') for k, v in execs.items()}, flush=True)
 
+        # ------------------------------------------------------------------ 1.6.1: custo por OP, MRP e Consistência dos dados
+        r161 = await ev("""async () => {
+            const co = (await mesRelatoriosAPI.executar('custo_op', {})).linhas.filter(l => String(l.OP).startsWith('OP20260812094138'));
+            const a = auditCostFamilyV4014('OP20260812094138-PA').resumo[0];
+            const mr = (await mesRelatoriosAPI.executar('pcp_mrp', {})).linhas, cs = await mesRelatoriosAPI.executar('aud_consistencia', {});
+            return { proc: co.reduce((s, l) => s + l.Processo, 0), tef: co.reduce((s, l) => s + l.TotalEf, 0), fam: [a.CustoEnergia + a.CustoMOD, a.CustoTotal, a.CustoMateriais],
+                     pa: (co.find(l => l.OP === 'OP20260812094138-PA') || {}).Processo, o1: (co.find(l => l.OP === 'OP20260812094138-01') || {}).Processo,
+                     cols: (await mesRelatoriosAPI.executar('custo_op', {})).colunas.map(c => c.k),
+                     mrp: mr.length > 0 && mr.every(l => l.JaConsumido > 0 ? l.Bruta <= l.Planejado + 1e-9 : Math.abs(l.Bruta - l.Planejado) < 1e-9),
+                     cs: cs.linhas.map(l => [l.Gravidade, l.Tipo, l.Registro]), resumo: cs.resumo }; }""")
+        ok(perto(r161['proc'], r161['fam'][0], 1e-4) and perto(r161['tef'], r161['fam'][1], 1e-4) and perto(r161['pa'], 3069.221, 1e-3) and perto(r161['o1'], 461.768, 1e-3)
+           and all(k in r161['cols'] for k in ('Energia', 'MOD', 'Perdas', 'KWh')),
+           '1.6.1: Custo por OP — energia + MOD de cada OP somam a da família (4.633,51) e o total efetivo das OPs fecha com o custo da família', r161)
+        ok(perto(r161['fam'][2], 967.694735, 1e-6), '1.6.1: família encerrada com materiais = só o consumo real (970,138335 − 0,1274 − 2,3162 do planejado sem consumo)', r161['fam'])
+        ok(r161['mrp'], '1.6.1: relatório de MRP com planejado, já consumido e necessidade = o que falta consumir', r161['mrp'])
+        tipos = {(g, t) for g, t, _ in r161['cs']}
+        esperados = {('Erro', 'Lote com saldo negativo'), ('Erro', 'Passaporte ligado a OP inexistente'), ('Atenção', 'Código de equipamento repetido'), ('Atenção', 'Custo gravado diferente do cálculo atual'),
+                     ('Atenção', 'Potência fora do comum'), ('Atenção', 'Perda de material sem lote'), ('Atenção', 'Registro de OP excluída'), ('Atenção', 'Tarifa de energia diferente no cadastro de recursos'),
+                     ('Atenção', 'UM da entrada diferente da UM do material'), ('Informação', 'OP encerrada com material planejado sem consumo'), ('Informação', 'Etapa concentra a energia da família')}
+        ok(esperados <= tipos, '1.6.1: Consistência dos dados aponta lotes negativos, passaporte sem OP, códigos repetidos, custo gravado desatualizado, potência, perdas sem lote, OPs excluídas, tarifa, UM e energia concentrada',
+           sorted(esperados - tipos))
+        neg = sorted(r for g, t, r in r161['cs'] if t == 'Lote com saldo negativo')
+        rep = sorted(r for g, t, r in r161['cs'] if t == 'Código de equipamento repetido')
+        ok(neg == ['EN0013 · MP0013', 'EN0014 · MP0014', 'EN0015 · MP0015'] and rep == ['Código 12', 'Código 6'], '1.6.1: lotes negativos EN0013, EN0014 e EN0015; códigos 6 e 12 repetidos', (neg, rep))
+        ok([x[0] for x in r161['resumo'][:3]] == ['Erros (número errado hoje)', 'Atenção (provavelmente errado ou desatualizado)', 'Informação (regra aplicada)'] and r161['cs'][0][0] == 'Erro',
+           '1.6.1: Consistência ordenada por gravidade (Erro primeiro) com o resumo por gravidade', r161['resumo'])
+
         sem_tela = []
         for r in lista:
             await ev(f"mesRelAbrir('{r['id']}')")
@@ -205,7 +232,8 @@ async def main():
             out.mats = { n: mats.length, nb: res.length,
               igual: mats.every(m => { const r = res.find(x => x.CodigoMaterial === m.Material); return r && Math.abs(num(r.SaldoFisico) - m.Saldo) < 1e-9 && Math.abs(num(r.Reservado) - m.Reservado) < 1e-9
                 && Math.abs(m.Disponivel - (m.Saldo - m.Reservado)) < 1e-6 && m.Status === r.Status; }),
-              somaLotes: mats.every(m => Math.abs(lotes.filter(l => l.Material === m.Material).reduce((s, l) => s + l.Saldo, 0) - m.Saldo) < 1e-6) };
+              /* 1.6.1: o lote fica na UM da entrada e o material, na UM do material (conversão do estoque) */
+              somaLotes: mats.every(m => Math.abs(lotes.filter(l => l.Material === m.Material).reduce((s, l) => s + mesEstoqueAPI.converterUM(l.Saldo, l.UM, m.UM, m.Material).q, 0) - m.Saldo) < 1e-6) };
             const L = mesApontamentoPI14.livro(), pl = await R('pipa_lote');
             out.pipa = { n: pl.length, nl: Object.keys(L.lotes).length,
               igual: pl.every(x => { const l = L.lotes[x.Lote]; return l && Math.abs(l.Saldo - x.Saldo) < 1e-9 && Math.abs(l.Disponivel - x.Disponivel) < 1e-9
@@ -333,7 +361,7 @@ async def main():
         ok('R$' in fmt_valor and fmt_data == 'dd/mm/yyyy', 'formatos: moeda em R$ e data dd/mm/aaaa', (fmt_valor, fmt_data))
         par = kv_aba(wb['Parâmetros'])
         ok(par.get('Relatório') == 'Saldo por lote (entrada)' and par.get('Filtro: Material ou descrição') == 'solvente' and par.get('Ordenação') == 'Saldo (decrescente)'
-           and 'admin' in str(par.get('Usuário')) and '1.5.0' in str(par.get('Versão')) and isinstance(par.get('Gerado em'), datetime.datetime)
+           and 'admin' in str(par.get('Usuário')) and '1.6.1' in str(par.get('Versão')) and isinstance(par.get('Gerado em'), datetime.datetime)
            and par.get('Registros exportados') == n_esp and 'saldo = recebido' in str(par.get('Regra de cálculo')), 'aba Parâmetros: relatório, filtros, ordem, data e hora, usuário, versão e regra de cálculo', par)
         st, aud = await auditoria(hoje, hoje)
         reg = [a for a in (aud or []) if a.get('module') == 'relatorios' and a.get('action') == 'EXPORTAR' and a.get('record_key') == 'est_lotes']

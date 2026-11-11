@@ -12,10 +12,13 @@
      5) Calendário de Testes de Caracterização: cartões no estilo Kanban, arrastáveis entre os dias (só nessa tela),
         com a mesma validação de dias úteis / dias bloqueados / indisponibilidade do equipamento do PCP e sem
         sobreposição de testes no mesmo equipamento.
+     1.6.1) MRP: a necessidade de cada OP é o planejado menos o que ela já consumiu (o consumo já saiu do saldo físico;
+        antes era descontado duas vezes) e tudo fica na UM do material (window.mesNecessidadesMRP, usada também pelo
+        relatório de MRP).
    ===================================================================== */
 (function () {
   'use strict';
-  var VERSAO = '1.3.0';
+  var VERSAO = '1.6.1';
 
   /* ---------------------------------------------------------------------
      0) UTILITÁRIOS
@@ -225,20 +228,38 @@
       if (saldo - bruta < minimo) return 'FICARÁ ABAIXO APÓS AS OPs SELECIONADAS';
       return 'OK';
     }
-    function calcMRP() {
-      var d = D(), sel = selectedSet(), saldos = saldoPorMaterial(), map = new Map();
-      d.op.filter(function (o) { return activeOP(o) && sel.has(String(o.CodOP)); }).forEach(function (op) {
+    /* 1.6.1 — necessidade de cada OP = planejado − o que ela já consumiu (esse consumo já saiu do saldo físico; antes o
+       planejado inteiro entrava na necessidade e o consumido era descontado duas vezes), tudo na UM do material. */
+    function conv(q, de, para, c) { var a = API(); return a && a.converterUM ? a.converterUM(q, de, para, c).q : q; }
+    function necessidades(ops) {
+      var d = D(), a = API(), ctx = a && a.contexto ? a.contexto() : null, map = new Map();
+      ops.forEach(function (op) {
+        var porMat = {};
         d.op_materiais.filter(function (m) { return String(m.CodOP) === String(op.CodOP) && !/pi intermedi/i.test(String(m.TipoConsumo || '')); }).forEach(function (m) {
           var c = String(m.CodigoMaterial || '').trim(); if (!c) return;
-          var q = N(m.QtdPlanejada || m.QtdNecessaria || m.QuantidadePlanejada || m.Qtd);
-          var z = map.get(c) || { Item: c, Material: m.DescricaoMaterial || '', UM: m.UM || '', NecessidadeBruta: 0, Detalhes: [] };
-          z.NecessidadeBruta += q;
-          z.Detalhes.push({ OP: op.CodOP, Item: op.CodigoProduto || op.Produto || '', QuantidadeOP: op.QtdPlanejada || '', QtdMaterial: q, UM: m.UM || '', Etapa: m.OrdemEtapa || m.Ordem || '', Equipamento: m.CodEquipamento || '' });
+          var mat = material(c) || {}, umMat = txt(mat.UM) || m.UM || '';
+          var q = conv(N(m.QtdPlanejada || m.QtdNecessaria || m.QuantidadePlanejada || m.Qtd), m.UM, umMat, c);
+          var z = map.get(c) || { Item: c, Material: m.DescricaoMaterial || mat.DescricaoMateriais || '', UM: umMat, NecessidadeBruta: 0, Planejado: 0, JaConsumido: 0, Detalhes: [], PorOP: [] };
+          z.Planejado += q;
+          z.Detalhes.push({ OP: op.CodOP, Item: op.CodigoProduto || op.Produto || '', QuantidadeOP: op.QtdPlanejada || '', QtdMaterial: q, UM: umMat, Etapa: m.OrdemEtapa || m.Ordem || '', Equipamento: m.CodEquipamento || '' });
           map.set(c, z);
+          porMat[c] = (porMat[c] || 0) + q;
+        });
+        Object.keys(porMat).forEach(function (c) {
+          var z = map.get(c), cons = a && a.consumidoNaOP ? N(a.consumidoNaOP(op.CodOP, c, ctx)) : 0, rest = Math.max(0, porMat[c] - cons);
+          z.JaConsumido += cons; z.NecessidadeBruta += rest;
+          z.PorOP.push({ OP: op.CodOP, Planejado: arred(porMat[c], 6), JaConsumido: arred(cons, 6), AConsumir: arred(rest, 6) });
         });
       });
+      return map;
+    }
+    window.mesNecessidadesMRP = function (ops) { var out = []; necessidades(A(ops)).forEach(function (z) { out.push(z); }); return out; };
+    function calcMRP() {
+      var d = D(), sel = selectedSet(), saldos = saldoPorMaterial();
+      var map = necessidades(d.op.filter(function (o) { return activeOP(o) && sel.has(String(o.CodOP)); }));
       var out = [];
       map.forEach(function (z) {
+        z.Planejado = arred(z.Planejado, 6); z.JaConsumido = arred(z.JaConsumido, 6);
         var s = saldos.get(z.Item) || {}, fisico = N(s.SaldoFisico), st = Math.max(0, fisico), bruta = arred(z.NecessidadeBruta, 6), net = arred(Math.max(0, bruta - st), 6);
         var minimo = minimoDoMaterial(material(z.Item));
         out.push(Object.assign({}, z, { NecessidadeBruta: bruta, Estoque: arred(st, 6), NecessidadeLiquida: net, 'Ação': net > 0 ? 'COMPRAR / SUPRIR' : 'ESTOQUE SUFICIENTE',
@@ -269,7 +290,8 @@
         }).join('') || '<tr><td colspan="10">Selecione ao menos uma OP com materiais dimensionados.</td></tr>') + '</tbody></table></div>';
       el('content').innerHTML = '<div class="toolbar"><button onclick="mrpModuleV235()">Recalcular MRP</button><button onclick="mrpSelectAllV2317(true)">Selecionar todas</button><button onclick="mrpSelectAllV2317(false)">Limpar seleção</button><button onclick="mrpComprasPDFV2316()">PDF Compras</button><button onclick="mrpComprasExcelV2316()">Excel Compras</button><button onclick="render(\'ops\')">Abrir OPs</button><button class="secondary" onclick="render(\'estoque\')">Estoque / Rastreabilidade</button></div>' +
         '<div class="mrp-note"><b>Regra V2.3.17:</b> o MRP não cria OP. Você escolhe quais OPs entram no planejamento; a necessidade bruta é a soma dos materiais já dimensionados nessas OPs e a necessidade líquida desconta o estoque disponível. ' +
-        '<b>1.3.0:</b> o estoque é o mesmo saldo físico do Estoque / Rastreabilidade (entradas − consumos apontados − perdas do lote − saídas manuais e baixas técnicas). O estoque mínimo do cadastro de materiais é só alerta.' +
+        '<b>1.3.0:</b> o estoque é o mesmo saldo físico do Estoque / Rastreabilidade (entradas − consumos apontados − perdas do lote − saídas manuais e baixas técnicas). O estoque mínimo do cadastro de materiais é só alerta. ' +
+        '<b>1.6.1:</b> a necessidade de cada OP é o planejado menos o que ela já consumiu (esse consumo já saiu do saldo físico e não é descontado duas vezes), tudo na UM do material.' +
         (function () {
           var ops = {}; d.op.forEach(function (o) { ops[o.CodOP] = 1; });
           var orf = d.consumos_materiais.filter(function (c) { return c && !ops[c.CodOP]; }), opsOrf = orf.map(function (c) { return c.CodOP; }).filter(function (x, i, a) { return a.indexOf(x) === i; });
@@ -284,8 +306,10 @@
       if (!API()) return memAnt && memAnt.apply(this, arguments);
       var row = calcMRP().find(function (x) { return String(x.Item) === String(code); }); if (!row) return;
       var s = saldoPorMaterial().get(String(code)) || {};
-      var lines = row.Detalhes.map(function (x) { return x.OP + ': ' + x.QtdMaterial + ' ' + x.UM + (x.Etapa ? ' · etapa ' + x.Etapa : '') + (x.Equipamento ? ' · ' + x.Equipamento : ''); }).join('\n');
-      alert('Memória de cálculo — ' + row.Item + ' ' + row.Material + '\n\n' + lines + '\n\nNecessidade bruta = ' + f4(row.NecessidadeBruta) + ' ' + row.UM +
+      var lines = row.Detalhes.map(function (x) { return x.OP + ': ' + f4(x.QtdMaterial) + ' ' + x.UM + (x.Etapa ? ' · etapa ' + x.Etapa : '') + (x.Equipamento ? ' · ' + x.Equipamento : ''); }).join('\n');
+      var porOP = A(row.PorOP).map(function (x) { return x.OP + ': planejado ' + f4(x.Planejado) + ' − já consumido ' + f4(x.JaConsumido) + ' = a consumir ' + f4(x.AConsumir) + ' ' + row.UM; }).join('\n');
+      alert('Memória de cálculo — ' + row.Item + ' ' + row.Material + '\n\nPlanejado nas OPs:\n' + lines + (porOP ? '\n\nPor OP (o que já foi consumido já saiu do estoque):\n' + porOP : '') +
+        '\n\nNecessidade bruta (a consumir) = ' + f4(row.NecessidadeBruta) + ' ' + row.UM +
         '\nEstoque disponível (saldo físico do Estoque) = ' + f4(row.Estoque) + ' ' + row.UM +
         '\n   entradas ' + f4(s.Entradas) + ' − consumido ' + f4(N(s.ConsumidoEncerradas) + N(s.EmProducao)) + ' − perdas ' + f4(s.Perdas) + ' − saídas manuais/baixas técnicas ' + f4(N(s.AjustesSaida) + N(s.BaixasTecnicas)) +
         '\nNecessidade líquida = ' + f4(row.NecessidadeLiquida) + ' ' + row.UM +

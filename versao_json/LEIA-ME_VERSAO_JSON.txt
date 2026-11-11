@@ -349,7 +349,7 @@ REGRAS DE CÁLCULO REVISTAS (VERSÃO 1.4.0)
   cheio mesmo já tendo virado PA).
 
 RELATÓRIOS (VERSÃO 1.5.0)
-- Menu Relatórios > Catálogo de relatórios: 38 relatórios prontos em 11 módulos (Estoque de materiais, PI e PA
+- Menu Relatórios > Catálogo de relatórios: 39 relatórios prontos em 11 módulos (Estoque de materiais, PI e PA
   prontos, Produção, Tempo por máquina, Perdas, Planejamento, Custos, Sustentabilidade / ACV, Passaporte da
   bateria, Cadastros e Auditoria), com busca. Os números saem das mesmas contas das telas (saldo do Estoque /
   Rastreabilidade, livro do Estoque PI / PA, custo e ACV da família, Carga × capacidade, MRP, passaporte).
@@ -407,7 +407,7 @@ HELP DESK — ASSISTENTE PASSO A PASSO (VERSÃO 1.6.0)
 - O Help Desk (botão "?" do menu, "? Ajuda" no topo e "? Procedimento" das telas) abre na aba "🧭 Assistente passo a
   passo"; o fluxo de integração dos módulos de antes continua na aba "🗺 Fluxo de integração dos módulos".
 - "O que você quer fazer?": busca por objetivo (com sinônimos, sem acento e sem maiúsculas: "cadastrar máquina",
-  "nota fiscal", "refugo", "pegada de carbono"...) ou a lista dos 26 objetivos por módulo (cadastros, estoque,
+  "nota fiscal", "refugo", "pegada de carbono"...) ou a lista dos 27 objetivos por módulo (cadastros, estoque,
   produção, planejamento, custos/ACV/passaporte, relatórios e administração). "Nesta tela" mostra os objetivos da
   tela que está aberta.
 - Perguntas de sim e não conferem os pré-requisitos, com uma checagem nos dados ("7 processos cadastrados", "8 OPs
@@ -422,6 +422,40 @@ HELP DESK — ASSISTENTE PASSO A PASSO (VERSÃO 1.6.0)
 - "Não encontrei o que queria" registra o que a pessoa procurava, a tela e o passo. O administrador vê em
   "👥 Progresso da equipe e pedidos de ajuda" o progresso de cada usuário e esses pedidos, e exporta tudo para o
   Excel.
+
+CONFERÊNCIA DOS CÁLCULOS E CONSISTÊNCIA DOS DADOS (VERSÃO 1.6.1)
+- OP encerrada: só o consumo real entra no custo e na pegada de carbono. O material planejado e não apontado continua
+  na auditoria do custo com R$ 0 ("Planejado sem consumo apontado — fora do custo (OP encerrada)") e o encerramento
+  da OP avisa antes, listando esses materiais. Em OP aberta o planejado continua como custo projetado. Exemplo da
+  base atual: na família OP20260812094138, o MP0013 da -05 e o MP0014 da -06 (consumidos na -07) contavam duas
+  vezes; os materiais passam de R$ 970,14 para R$ 967,69 e o peso da célula no passaporte, de 1,5405 para 1,5291 kg.
+- Custo por OP (relatório "Custo por OP", "Custos da OP" e texto de custo do passaporte): energia e mão de obra vêm
+  das etapas da própria OP, com a mesma conta do custo da família. Antes vinham do primeiro cadastro de recurso com
+  o mesmo código ou processo, e a OP de PA aparecia com R$ 0. Agora a soma das OPs fecha com a família e as perdas
+  da OP entram no total efetivo. Colunas novas: Energia, Mão de obra, kWh e Perdas.
+- Unidade de medida no estoque: consumo, perda e apontamento descontam do lote convertidos para a unidade do lote; a
+  visão por material, as reservas e o MRP somam na unidade do material. Massa (kg, g, mg, t), volume (L, mL, m³) e
+  comprimento (m, cm, mm) convertem direto; entre a unidade do material e kg vale o "Fator conversão para kg" do
+  cadastro de materiais. Exemplo: lote EN0016 do MP0016 lançado em kg e consumido em L: 1 − 0,15 L × 1,12 = 0,832 kg
+  (0,7429 L na visão por material). O custo unitário do lote também converte g, mL etc. (antes ficava 0 quando a
+  entrada não estava em kg nem na unidade do material). Lote sem regra de conversão fica marcado.
+- Lote com saldo negativo aparece como NEGATIVO (antes aparecia como ESGOTADO). A lista de lotes do consumo, no
+  Apontamento de Produção, mostra o saldo atual de cada lote. Consumo maior que o saldo do lote só é registrado
+  depois de confirmar o aviso e fica marcado como "acima do saldo", com o saldo de antes.
+- MRP (tela e relatório): a necessidade de cada OP aberta é o planejado menos o que ela já consumiu. Esse consumo já
+  saiu do saldo físico; antes era descontado duas vezes. Tudo na unidade do material.
+- Relatórios > 🛡️ Auditoria > "Consistência dos dados": confere os dados que alimentam estoque, custo, CO₂ e
+  passaporte e lista o que deixa algum número errado (Erro) ou provavelmente errado ou desatualizado (Atenção), e as
+  regras aplicadas que vale conferir (Informação), com o impacto e como corrigir. Só lê: não corrige nada sozinho.
+  Confere: lotes negativos; apontamentos em unidade sem conversão; entradas em unidade diferente do material, sem
+  quantidade ou sem valor; perdas de material sem lote ou sem motivo; registros de OPs excluídas; passaporte ligado
+  a OP que não existe; códigos de equipamento repetidos; potência acima de 50 kW; tarifa de energia diferente entre
+  cadastros; quantidade produzida diferente dos apontamentos; custo e CO₂ gravados diferentes do cálculo atual;
+  materiais sem fator de emissão ou de kg; etapas sem tempo ou sem potência; etapa que concentra a energia da
+  família; OP encerrada com material planejado sem consumo. No Help Desk: objetivo "Conferir se os dados estão
+  consistentes".
+- Custo e CO₂ já gravados não mudam sozinhos. Para gravar o valor atual: reabra a OP de PA e encerre de novo (custo
+  fechado) e calcule de novo na tela Sustentabilidade / ACV (CO₂).
 
 ONDE FICAM OS DADOS (pasta Dados)
 - MES_LION_DATA.json ............. todos os dados do MES
@@ -466,6 +500,14 @@ O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
 - Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
 
 VERSÕES DO SERVIDOR JSON
+- 1.6.1 (11/11/2026): revisão dos cálculos — OP encerrada só com o consumo real no custo e no CO₂ (com aviso no
+  encerramento); custo por OP com energia, mão de obra e perdas das etapas da própria OP; estoque com conversão de
+  unidade (lote na unidade da entrada, material na unidade do material, custo do lote em g, mL etc.); lote NEGATIVO,
+  saldo na lista de lotes do consumo e aviso de consumo acima do saldo; MRP descontando o que cada OP já consumiu;
+  relatório "Consistência dos dados" e o objetivo no Help Desk. Arquivos alterados: server\adaptador_apontamento_pi.js,
+  server\adaptador_codigos_estoque.js, server\adaptador_estoque_ajustes.js, server\adaptador_relatorios.js,
+  server\adaptador_helpdesk_assistente.js e server\MES_LION_SERVER_JSON.ps1. Os dados da versão 1.6.0 são lidos sem
+  conversão.
 - 1.6.0 (10/11/2026): importação de equipamentos por planilha em Recursos / Máquinas (modelo .xlsx com instruções,
   listas suspensas e exemplos, ou com os equipamentos cadastrados; CSV; validação linha a linha com o que muda,
   erros e avisos; planilha com os erros; importação com cópia de segurança, histórico e desfazer; Capacidades das

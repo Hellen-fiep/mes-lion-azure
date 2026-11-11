@@ -18,10 +18,14 @@
      7) Regras de cálculo: QtdProduzida = soma dos apontamentos (o lançamento contava o último duas vezes); perda de PI
         da própria família e perda dentro do consumo apontado não somam custo/CO₂ de novo; baixa automática do PI não
         apontado quando a OP consumidora é encerrada.
+     1.6.1) OP encerrada ou cancelada: só o consumo real entra no custo e no CO₂ (o material planejado sem consumo
+        apontado fica fora, com valor 0 na auditoria) e o encerramento avisa antes; na ACV o consumo de um material conta
+        uma vez por OP. Custo por OP (custosOP): energia + MOD das etapas desta OP na auditoria de custo (antes vinham do
+        primeiro cadastro de recurso com o mesmo código ou processo) e perdas da OP no total efetivo.
    ===================================================================== */
 (function () {
   'use strict';
-  var VERSAO = '1.4.0';
+  var VERSAO = '1.6.1';
 
   /* ---------------------------------------------------------------------
      0) UTILITÁRIOS
@@ -1563,6 +1567,9 @@
     if (abertos.length) av.push('Há apontamento de tempo em andamento: ' + abertos.map(function (t) { return (t.Equipamento || t.Processo || '') + ' desde ' + t.DataApontamento + ' ' + t.HoraInicio; }).join('; ') + '. O tempo real só conta depois de finalizado.');
     var pend = consumosDaOPConsumidora(op.CodOP, '').filter(function (c) { return c.PIExterno === 'Sim' && !opConcluida(opPor(c.CodOPOrigemPI)); });
     if (pend.length && tipoOP(op) === 'PA') av.push('PI de outra família vindo de OP ainda aberta (' + pend.map(function (c) { return c.CodOPOrigemPI; }).join(', ') + '): o custo herdado só existe depois que ela for encerrada.');
+    var semCons = materiaisSemConsumo(op);
+    if (semCons.length) av.push('Material planejado sem consumo apontado nesta OP: ' + semCons.map(function (x) { return x.CodigoMaterial + (x.Material ? ' — ' + x.Material : '') + ' (planejado ' + f4(x.Planejado) + ' ' + x.UM + ')'; }).join('; ') +
+      '. Com a OP encerrada, ' + (semCons.length > 1 ? 'esses materiais ficam' : 'esse material fica') + ' fora do custo e do CO₂ (conta só o consumo real). Se ' + (semCons.length > 1 ? 'foram usados' : 'foi usado') + ', aponte o consumo antes de encerrar.');
     return av.length ? 'Antes de encerrar a OP ' + op.CodOP + ':\n\n- ' + av.join('\n- ') + '\n\nContinuar com o encerramento?' : '';
   }
   (function () {
@@ -2096,6 +2103,141 @@
     };
   })();
 
+  /* 1.6.1 — d) OP ENCERRADA OU CANCELADA: SÓ O CONSUMO REAL ENTRA NO CUSTO E NO CO₂.
+     O custo da família (auditCostFamilyV4014) projetava, para o material planejado sem consumo apontado, quantidade
+     planejada × média ponderada das entradas — também em OP já encerrada, em que esse material não será mais consumido
+     (ou foi consumido em outra OP da família, que já tem o custo real: o valor entrava duas vezes). A ACV fazia o mesmo
+     com a massa planejada. Agora, em OP encerrada/cancelada, a linha continua na auditoria com quantidade 0, valor 0 e a
+     origem "Planejado sem consumo apontado — fora do custo (OP encerrada)" (o planejado fica em QtdPlanejada). OP aberta
+     continua com a projeção, que é o custo esperado. O encerramento lista esses materiais antes de encerrar (seção 7).
+     ACV: o consumo apontado de um material conta uma vez por OP, mesmo com o material em mais de uma linha da OP (a
+     V39.x copiava o total do material para cada linha). */
+  function opSemProjecao(op) { return !!op && (opConcluida(op) || opCancelada(op)); }
+  function consumoApontado(codOP, codMat) {
+    var k = txt(codOP), c = txt(codMat), q = 0;
+    A((D() || {}).consumos_materiais).forEach(function (x) {
+      if (x && txt(x.CodOP) === k && txt(x.CodigoMaterial) === c) q += N(x.ConsumoLiquido) || Math.max(0, N(x.QtdRetirada) - N(x.QtdDevolvida));
+    });
+    return q;
+  }
+  function linhasDoMaterial(codOP, codMat) {
+    var k = txt(codOP), c = txt(codMat);
+    return A((D() || {}).op_materiais).filter(function (x) { return x && txt(x.CodOP) === k && txt(x.CodigoMaterial || x.CodMaterial) === c && !ehLinhaPI(x); });
+  }
+  /* apontamento anterior ao consumo por lote (op_materiais.QtdConsumida sem consumos_materiais) */
+  function consumoLegado(linhas) { return linhas.reduce(function (s, x) { return s + (N(x.QtdConsumida) || N(x.QtdReal)); }, 0); }
+  function qtdPlanejadaLinha(m) { return N(m.QtdPlanejada) || N(m.QtdBase) || N(m.Qtd); }
+  function materiaisSemConsumo(op) {
+    var vistos = {}, out = [];
+    A((D() || {}).op_materiais).forEach(function (m) {
+      if (!m || txt(m.CodOP) !== txt(op && op.CodOP) || ehLinhaPI(m)) return;
+      var cod = txt(m.CodigoMaterial || m.CodMaterial); if (!cod || vistos[cod]) return;
+      vistos[cod] = 1;
+      var linhas = linhasDoMaterial(op.CodOP, cod), plan = linhas.reduce(function (s, x) { return s + qtdPlanejadaLinha(x); }, 0);
+      if (plan > 0 && !(consumoApontado(op.CodOP, cod) > 0) && !(consumoLegado(linhas) > 0)) {
+        var mat = typeof materialPorCodigo === 'function' ? (materialPorCodigo(cod) || {}) : {};
+        out.push({ CodigoMaterial: cod, Material: txt(m.DescricaoMaterial) || mat.DescricaoMateriais || '', Planejado: arred(plan), UM: txt(m.UM) || mat.UM || '' });
+      }
+    });
+    return out;
+  }
+  var REGRA_SEM_CONSUMO = 'Quantidade planejada × média ponderada das entradas compatíveis, só em OP aberta (custo projetado). Em OP encerrada ou cancelada conta só o consumo real: o planejado sem consumo apontado fica fora do custo (valor 0 na auditoria).';
+  function regraOPEncerradaNoCusto(a) {
+    if (!a || !Array.isArray(a.materiais)) return a;
+    var r = (Array.isArray(a.resumo) && a.resumo[0]) || null, delta = 0, fora = [], legadoUsado = {};
+    a.materiais.forEach(function (m) {
+      if (!m || !/^projetado/i.test(txt(m['Origem custo']))) return;
+      if (!opSemProjecao(opPor(m.OP))) return;
+      var antes = N(m.Resultado), unit = N(m.CustoUnitario), plan = N(m.Quantidade), chave = txt(m.OP) + '|' + txt(m.CodigoMaterial);
+      var leg = legadoUsado[chave] ? 0 : consumoLegado(linhasDoMaterial(m.OP, m.CodigoMaterial));
+      legadoUsado[chave] = 1;
+      m.QtdPlanejada = plan;
+      if (leg > 0) {
+        m.Quantidade = leg; m.Resultado = leg * unit;
+        m['Cálculo aberto'] = leg + ' × ' + unit + ' = ' + m.Resultado + ' (consumo apontado sem lote; planejado ' + plan + ')';
+        m['Origem custo'] = 'Consumo apontado sem lote — média ponderada das entradas (OP encerrada)';
+      } else {
+        m.Quantidade = 0; m.Resultado = 0;
+        m['Cálculo aberto'] = 'OP encerrada sem consumo apontado: 0 (o planejado ' + plan + ' ' + txt(m.UM) + ' × ' + unit + ' = ' + antes + ' fica fora do custo)';
+        m['Origem custo'] = 'Planejado sem consumo apontado — fora do custo (OP encerrada)';
+        fora.push(m);
+      }
+      delta += N(m.Resultado) - antes;
+    });
+    if (r) {
+      if (delta) { r.CustoMateriais = N(r.CustoMateriais) + delta; r.CustoTotal = N(r.CustoTotal) + delta; }
+      if (fora.length) r.PlanejadoForaDoCusto = fora.map(function (m) { return m.OP + ' ' + m.CodigoMaterial + ' (' + m.QtdPlanejada + ' ' + txt(m.UM) + ')'; }).join('; ');
+    }
+    a.regras = A(a.regras);
+    var rg = a.regras.find(function (x) { return x && /sem apontamento/i.test(String(x['Campo calculado'] || '')); });
+    if (rg) rg['Regra/Fórmula'] = REGRA_SEM_CONSUMO; else a.regras.push({ 'Ordem': 2, 'Campo calculado': 'Material sem apontamento', 'Regra/Fórmula': REGRA_SEM_CONSUMO });
+    return a;
+  }
+  (function () {
+    var ant = window.auditCostFamilyV4014;
+    if (typeof ant !== 'function') return;
+    var nova = function (codMae) {
+      var a = ant.apply(this, arguments);
+      try { regraOPEncerradaNoCusto(a); } catch (e) { console.warn('MES LION 1.6.1: custo de OP encerrada', e); }
+      return a;
+    };
+    window.auditCostFamilyV4014 = nova; window.auditCostFamilyV3822 = nova; window.auditCostFamilyV3819 = nova;
+  })();
+  /* quantidade de cada linha de material na ACV (auditoriaACVFamiliaV391) */
+  function qtdMaterialACV(m) {
+    var cod = txt(m.CodigoMaterial || m.CodMaterial), linhas = linhasDoMaterial(m.CodOP, cod), i = linhas.indexOf(m), primeira = i <= 0;
+    var real = consumoApontado(m.CodOP, cod);
+    if (real > 0) return primeira ? real : 0;
+    if (opSemProjecao(opPor(m.CodOP))) { var leg = consumoLegado(linhas); return primeira && leg > 0 ? leg : 0; }
+    var legL = N(m.QtdConsumida) || N(m.QtdReal);
+    if (legL > 0) return legL;
+    /* OP aberta sem consumo: projeção, uma vez por material/etapa/recurso (a mesma chave do custo projetado) */
+    var chave = function (x) { return [txt(x.OrdemEtapa || x.Ordem), txt(x.IdRecursoRoteiro)].join('|'); }, kk = chave(m);
+    for (var j = 0; j < i; j++) { if (chave(linhas[j]) === kk) return 0; }
+    return qtdPlanejadaLinha(m);
+  }
+  (function () {
+    var ant = window.qtdMaterialLinhaV391;
+    if (typeof ant !== 'function') return;
+    window.qtdMaterialLinhaV391 = function (m) {
+      try { if (m && txt(m.CodOP) && !ehLinhaPI(m) && txt(m.CodigoMaterial || m.CodMaterial)) return qtdMaterialACV(m); } catch (e) { console.warn('MES LION 1.6.1: quantidade na ACV', e); }
+      return ant.apply(this, arguments);
+    };
+  })();
+
+  /* 1.6.1 — e) CUSTO POR OP (custosOP: relatório "Custo por OP", "Custos da OP" e texto de custo do passaporte).
+     A energia + MOD da OP era a soma de CustoEnergia + CustoMOD do PRIMEIRO cadastro de recurso com o mesmo código de
+     equipamento OU o mesmo processo de cada etapa: em geral outro recurso, sem o tempo e a potência da etapa (a OP de PA
+     aparecia com R$ 0). Agora vêm das etapas desta OP na auditoria de custo — a mesma conta do custo da família, então a
+     soma das OPs fecha com a família. As perdas da OP entram no total efetivo (total projetado: materiais projetados +
+     energia + MOD, sem perdas). */
+  function custoProprioDaOP(cod) {
+    var op = opPor(cod); if (!op) return null;
+    var a = typeof v4033AuditCostPI === 'function' ? v4033AuditCostPI(op.CodOP) : null;
+    if (!a) return null;
+    var en = 0, mod = 0, kwh = 0, perdas = 0;
+    A(a.etapas).forEach(function (e) { if (!e || txt(e.OP) !== txt(op.CodOP)) return; en += N(e.CustoEnergia); mod += N(e.CustoMOD); kwh += N(e.EnergiaKWh); });
+    A(a.perdas).forEach(function (p) { if (p && txt(p.OP) === txt(op.CodOP)) perdas += N(p.Resultado); });
+    return { energia: en, mod: mod, kwh: kwh, perdas: perdas };
+  }
+  (function () {
+    var ant = window.custosOP;
+    if (typeof ant !== 'function') return;
+    window.custosOP = function (cod) {
+      var c = ant.apply(this, arguments) || {};
+      try {
+        var p = custoProprioDaOP(cod);
+        if (p) {
+          c.energia = p.energia; c.mod = p.mod; c.energiaKWh = p.kwh; c.processo = p.energia + p.mod; c.perdas = p.perdas;
+          c.total = N(c.materiaisProjetado) + c.processo;
+          c.totalEfetivo = N(c.materiaisEfetivo) + c.processo + c.perdas;
+          c.regraProcesso = 'Energia + MOD das etapas desta OP na auditoria de custo (potência × tempo × tarifa; tempo × pessoas × taxa MOD).';
+        }
+      } catch (e) { console.warn('MES LION 1.6.1: custo por OP', e); }
+      return c;
+    };
+  })();
+
   /* ---------------------------------------------------------------------
      11) TELAS: APONTAMENTO DE PRODUÇÃO, REGISTRO DE PERDAS, OP, ROTEIRO, ESTRUTURA E ESTOQUE
      --------------------------------------------------------------------- */
@@ -2365,7 +2507,8 @@
     consumidoPelaOP: consumidoPelaOP, linhasPIDaOP: linhasPIDaOP, maquinasDaOP: maquinasDaOP, duracaoMin: duracaoMin, recalcularTempoReal: recalcularTempoReal,
     entradasPI: entradasPI, validarEntradaPI: validarEntradaPI, sugestoesFluxo: sugestoesFluxo, diagnosticoFluxo: diagnosticoFluxo, partesEtiquetas: partesEtiquetas,
     criarEtiquetas: criarEtiquetas, baixaAutomaticaPI: baixaAutomaticaPI, normalizarQtdProduzida: normalizarQtdProduzida, chaveMotivo: chaveMotivo, categorias: categorias,
-    perdaPIExterna: perdaPIExterna, fontesPI: fontesPI
+    perdaPIExterna: perdaPIExterna, fontesPI: fontesPI,
+    /* 1.6.1 */ materiaisSemConsumo: materiaisSemConsumo, opSemProjecao: opSemProjecao, custoProprioDaOP: custoProprioDaOP, consumoApontado: consumoApontado, ehPerdaDePI: ehPerdaDePI
   };
   window.MES_ADAPTADOR_APONTAMENTO_PI = VERSAO;
 })();
