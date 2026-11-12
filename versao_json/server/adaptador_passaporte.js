@@ -14,7 +14,9 @@
           em RASCUNHO salva com informações incompletas e com OP ainda aberta;
         - a composição mássica publicada considera só as massas úteis (cada material com sua marca; os
           solventes, que evaporam no processo, ficam fora por padrão);
-        - os campos repetidos dos blocos "UE" (V1.1.1) e "Guidance v2.0" (V1.1.4) viraram um cadastro único.
+        - os campos repetidos dos blocos "UE" (V1.1.1) e "Guidance v2.0" (V1.1.4) viraram um cadastro único;
+        - 1.7.0: "Energia medida" e "Capacidade medida" (média dos testes das células da OP de PA, com mínimo e
+          máximo na origem do dado), lidos de adaptador_paradas_testes.js.
    ===================================================================== */
 
 /* ---------------------------------------------------------------------
@@ -739,6 +741,8 @@
     { k: 'BP_DP28_MaxVoltage', g: 'celula', l: 'Tensão máxima', u: 'V', dp: '28', leg: ['EU_1_8_TensaoMax'] },
     { k: 'EU_1_8_Temperatura', g: 'celula', l: 'Faixa de temperatura das tensões' },
     { k: 'BP_EnergiaWh', g: 'celula', l: 'Energia nominal', u: 'Wh' },
+    { k: 'BP_EnergiaMedidaWh', g: 'celula', l: 'Energia medida (média dos testes das células)', u: 'Wh' },
+    { k: 'BP_CapacidadeMedidaAh', g: 'celula', l: 'Capacidade medida (média dos testes das células)', u: 'Ah' },
     { k: 'BP_DP10_Weight', g: 'celula', l: 'Peso da célula', u: 'kg', dp: '10', leg: ['EU_A9_PesoKg'] },
     { k: 'BP_Dimensoes', g: 'celula', l: 'Dimensões' },
     { k: 'BP_DP29_OriginalPower', g: 'celula', l: 'Potência original', u: 'W', dp: '29', leg: ['EU_1_9_PotenciaW'] },
@@ -1026,6 +1030,15 @@
       put('EU_A3_Modelo', rootOp.IdCelula, 'OP ' + root);
       put('BP_DP12_Chemistry', rootOp.QuimicaFormula, 'OP ' + root);
     }
+    /* 1.7.0: energia e capacidade MEDIDAS nos testes das células da OP de PA (adaptador_paradas_testes.js) */
+    try {
+      var apiT = window.mesParadasTestesAPI;
+      if (apiT && rootOp && rootOp.CodOP) {
+        var rt = apiT.resumoTestes(rootOp), ftxt = function (x, c) { return 'testes de ' + x.n + ' de ' + rt.celulas + ' célula(s) da OP ' + rootOp.CodOP + (x.n > 1 ? ' (mín. ' + numTexto(x.min, c) + ', máx. ' + numTexto(x.max, c) + ')' : ''); };
+        if (rt.energia) put('BP_EnergiaMedidaWh', numTexto(rt.energia.media, 2), ftxt(rt.energia, 2));
+        if (rt.capacidade) put('BP_CapacidadeMedidaAh', numTexto(rt.capacidade.media, 3), ftxt(rt.capacidade, 3));
+      }
+    } catch (e) { console.warn('MES LION 1.7: testes das células no passaporte', e); }
     var peso = N(prod['Peso (kg)'] || prod['Massa (kg)']), fontePeso = fe;
     if (!(peso > 0) && ms.utilCelula > 0 && !ms.semConversao.length) { peso = ms.utilCelula; fontePeso = 'massa útil calculada da OP'; }
     if (peso > 0) put('BP_DP10_Weight', fmt(peso, 4), fontePeso);
@@ -1533,7 +1546,7 @@
     var prod = v.prod || {}, op = v.op || {};
     var titulo = prod['Descrição'] || op.DescricaoProduto || bp.CodProduto || 'Bateria';
     var sub = [bp.CodProduto || '', mostra('IDLote') ? 'Lote ' + v.valor('IDLote') : ''].filter(Boolean).join(' · ');
-    var kpis = [['BP_DP11_Capacity', 'Capacidade nominal'], ['BP_DP27_NominalVoltage', 'Tensão nominal'], ['BP_EnergiaWh', 'Energia nominal'], ['BP_DP10_Weight', 'Peso'],
+    var kpis = [['BP_DP11_Capacity', 'Capacidade nominal'], ['BP_DP27_NominalVoltage', 'Tensão nominal'], ['BP_EnergiaWh', 'Energia nominal'], ['BP_EnergiaMedidaWh', 'Energia medida'], ['BP_DP10_Weight', 'Peso'],
       ['EU_C1_PegadaCarbono', 'Pegada de carbono'], ['BP_CO2_PorCelula', 'CO₂eq por célula'], ['BP_DP12_Chemistry', 'Química'], ['EU_A3_Modelo', 'Modelo da célula']]
       .filter(function (x) { return mostra(x[0]); });
     var h = '<div class="dash-public passport-public bpu-painel"><style>' + CSS_PAINEL + '</style>' +

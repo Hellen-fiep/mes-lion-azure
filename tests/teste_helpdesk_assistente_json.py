@@ -94,7 +94,7 @@ async def main():
         info = await ev("""() => ({ v: window.MES_ADAPTADOR_HELPDESK_ASSISTENTE, erros: mesHelpDeskAPI.validar(), fluxos: mesHelpDeskAPI.fluxos(),
             trilhas: mesHelpDeskAPI.trilhas(), grupos: mesHelpDeskAPI.grupos(), telas: mesHelpDeskAPI.telas() })""")
         fl = info['fluxos']
-        ok(info['v'] == '1.6.1' and info['erros'] == [], 'adaptador 1.6.1 (assistente do Help Desk) carregado e todos os objetivos bem formados (destinos, alcance, fim de cada caminho)', info['erros'][:5])
+        ok(info['v'] == '1.7.0' and info['erros'] == [], 'adaptador 1.7.0 (assistente do Help Desk) carregado e todos os objetivos bem formados (destinos, alcance, fim de cada caminho)', info['erros'][:5])
         por_grupo = {g: [f['id'] for f in fl if f['grupo'] == g] for g in info['grupos']}
         ok(len(fl) >= 20 and all(len(v) >= 2 for v in por_grupo.values()) and len(info['grupos']) == 7,
            f'{len(fl)} objetivos em {len(info["grupos"])} módulos (cadastros, estoque, produção, planejamento, custos/ACV/passaporte, relatórios, administração)', {k: len(v) for k, v in por_grupo.items()})
@@ -144,7 +144,8 @@ async def main():
         buscas = {'cadastrar maquina': 'cad_equipamento', 'Cadastrar um EQUIPAMENTO novo': 'cad_equipamento', 'nota fiscal': 'entrada_material', 'refugo': 'registrar_perda',
                   'pegada de carbono': 'calcular_acv', 'o que comprar': 'mrp', 'saldo do lote': 'saldo_estoque', 'quem alterou': 'historico', 'trocar senha': 'usuarios',
                   'importar planilha de equipamentos': 'cad_equipamento', 'fórmula do slurry': 'formulacao', 'encerrar op': 'encerrar_op', 'calendário': 'calendario',
-                  'lote negativo': 'consistencia', 'números errados': 'consistencia'}
+                  'lote negativo': 'consistencia', 'números errados': 'consistencia', 'máquina parada': 'registrar_parada', 'energia medida na formação': 'testes_celulas',
+                  'dashboard': 'painel', 'regra de cálculo': 'indicador'}
         errados = {}
         for q, esperado in buscas.items():
             await page.fill('#mha_q', q)
@@ -172,8 +173,8 @@ async def main():
         await clicar('.mha-chip[data-id="Operador"]', 400)
         prog = await ev("(document.getElementById('mha_prog') || {}).textContent || ''")
         d = await gravado(lambda d: any(r.get('Usuario') == 'admin' and r.get('Trilha') == 'Operador' for r in d.get('helpdesk_progresso') or []))
-        ok(prog.startswith('0 de 6 objetivos') and any(r.get('Usuario') == 'admin' and r.get('Trilha') == 'Operador' for r in d.get('helpdesk_progresso') or []),
-           'trilha Operador escolhida: "0 de 6 objetivos" e gravada por usuário (data.helpdesk_progresso)', prog)
+        ok(prog.startswith('0 de 8 objetivos') and any(r.get('Usuario') == 'admin' and r.get('Trilha') == 'Operador' for r in d.get('helpdesk_progresso') or []),
+           'trilha Operador escolhida: "0 de 8 objetivos" e gravada por usuário (data.helpdesk_progresso)', prog)
         prox = await ev("(document.querySelector('#mha_main .mha-card .mha-item') ? Array.from(document.querySelectorAll('#mha_main .mha-card')).map(c => c.innerText).join(' | ') : '')")
         ok('Registrar a entrada (recebimento) de material' in prox, 'o início mostra o próximo objetivo da trilha', prox[:300])
 
@@ -315,8 +316,8 @@ async def main():
         await p2.click('.mha-chip[data-id="PCP"]')
         await p2.wait_for_timeout(300)
         prog2 = await p2.evaluate("(document.getElementById('mha_prog') || {}).textContent || ''")
-        ok(sem_equipe and 'mha-nao' in sug['s'] and 'sem perfil de administrador' in sug['c'] and prog2.startswith('0 de 10'),
-           'usuário comum: sem a visão da equipe, "Criar usuário" sugere Não (não é administrador) e o progresso é dele (trilha PCP 0 de 10)', (sem_equipe, sug, prog2))
+        ok(sem_equipe and 'mha-nao' in sug['s'] and 'sem perfil de administrador' in sug['c'] and prog2.startswith('0 de 12'),
+           'usuário comum: sem a visão da equipe, "Criar usuário" sugere Não (não é administrador) e o progresso é dele (trilha PCP 0 de 12)', (sem_equipe, sug, prog2))
         cookies2 = {k['name']: k['value'] for k in await ctx2.cookies()}
         fim_t = time.time() + 40
         regs = []

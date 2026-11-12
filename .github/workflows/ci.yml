@@ -591,7 +591,7 @@ jobs:
           }
           exit $codigo
 
-      - name: Navegador (E2E, primeira tela, Capacidade e Carga, Calendário de Produção, Passaporte, Apontamento/PIs 1.4.0 e regras 1.6.1, Relatórios 1.5.0 e Consistência 1.6.1, Importação de equipamentos e Help Desk 1.6.0) — servidor no Windows PowerShell 5.1
+      - name: Navegador (E2E, primeira tela, Capacidade e Carga, Calendário de Produção, Passaporte, Apontamento/PIs 1.4.0 e regras 1.6.1, Relatórios 1.5.0 e Consistência 1.6.1, Importação de equipamentos e Help Desk 1.6.0, Paradas, testes das células e Painéis 1.7.0) — servidor no Windows PowerShell 5.1
         shell: pwsh
         timeout-minutes: 65
         run: |
@@ -601,7 +601,8 @@ jobs:
                            @{ porta = 8793; script = 'tests/teste_capacidade_json.py'; log = 'capacidade_json' }, @{ porta = 8794; script = 'tests/teste_calendario_json.py'; log = 'calendario_json' },
                            @{ porta = 8795; script = 'tests/teste_passaporte_json.py'; log = 'passaporte_json' }, @{ porta = 8796; script = 'tests/teste_apontamento_pi_json.py'; log = 'apontamento_pi_json' },
                            @{ porta = 8797; script = 'tests/teste_relatorios_json.py'; log = 'relatorios_json' }, @{ porta = 8798; script = 'tests/teste_importacao_recursos_json.py'; log = 'importacao_recursos_json' },
-                           @{ porta = 8799; script = 'tests/teste_helpdesk_assistente_json.py'; log = 'helpdesk_assistente_json' })) {
+                           @{ porta = 8799; script = 'tests/teste_helpdesk_assistente_json.py'; log = 'helpdesk_assistente_json' },
+                           @{ porta = 8800; script = 'tests/teste_paineis_json.py'; log = 'paineis_json' })) {
             python versao_json/montar_pacote.py --frontend out/front --saida "out/json_$($t.porta)/MES_LION_1_0_JSON" --dados tests/dados_teste/MES_LION_DATA_TESTE.json | Out-Null
             $pkg = (Resolve-Path "out/json_$($t.porta)/MES_LION_1_0_JSON").Path
             $p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$pkg\server\MES_LION_SERVER_JSON.ps1",'-Port',"$($t.porta)",'-NaoAbrirNavegador','-Detalhado' -PassThru -RedirectStandardOutput "out/$($t.log)_servidor.log" -RedirectStandardError "out/$($t.log)_servidor_err.log"

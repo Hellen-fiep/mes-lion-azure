@@ -23,7 +23,7 @@
 (function () {
   'use strict';
   if (window.MES_ADAPTADOR_HELPDESK_ASSISTENTE) return;
-  var VERSAO = '1.6.1';
+  var VERSAO = '1.7.0';
 
   /* ---------------------------------------------------------------------
      0) UTILITÁRIOS
@@ -87,7 +87,15 @@
     custos: function (d) { var n = A(d.custos_op).length; return { ok: n > 0, n: n, txt: n ? plural(n, 'custo de OP fechado', 'custos de OP fechados') + '.' : 'Nenhum custo de OP fechado ainda.' }; },
     fatores: function (d) { var n = A(d.acv_fatores).length + A(d.sust_fatores).length; return { ok: n > 0, n: n, txt: n ? plural(n, 'fator ambiental cadastrado', 'fatores ambientais cadastrados') + '.' : 'Nenhum fator ambiental cadastrado.' }; },
     acv_calculados: function (d) { var n = A(d.sust_op).length; return { ok: n > 0, n: n, txt: n ? plural(n, 'cálculo de ACV por OP', 'cálculos de ACV por OP') + ' (ex.: ' + amostra(A(d.sust_op).map(function (s) { return txt(s.CodOPMae || s.CodOP); }), 3) + ').' : 'Nenhum ACV calculado ainda.' }; },
-    admin: function () { var a = admin(); return { ok: a, n: a ? 1 : 0, txt: a ? 'Você entrou como ' + usuario() + ' (perfil ADMIN).' : 'Você entrou como ' + usuario() + ', sem perfil de administrador.' }; }
+    admin: function () { var a = admin(); return { ok: a, n: a ? 1 : 0, txt: a ? 'Você entrou como ' + usuario() + ' (perfil ADMIN).' : 'Você entrou como ' + usuario() + ', sem perfil de administrador.' }; },
+    /* 1.7.0: paradas, testes das células e painéis */
+    motivos_parada: function (d) { var l = A(d.paradas_motivos).filter(function (m) { return m && m.Ativo !== 'Não'; }); return { ok: l.length > 0, n: l.length, txt: l.length ? plural(l.length, 'motivo de parada ativo', 'motivos de parada ativos') + ' (ex.: ' + amostra(l.map(function (m) { return txt(m.Motivo) + (m.Planejada === 'Sim' ? ' — planejada' : ''); }), 3) + ').' : 'Nenhum motivo de parada cadastrado.' }; },
+    pa_produzido: function (d) {
+      var ops = {}; A(d.op).forEach(function (o) { if (o && chave(o.TipoOP) === 'pa') ops[txt(o.CodOP)] = 1; });
+      var com = {}; A(d.producao).forEach(function (p) { if (p && ops[txt(p.CodOP)]) com[txt(p.CodOP)] = 1; });
+      var l = Object.keys(com); return { ok: l.length > 0, n: l.length, txt: l.length ? plural(l.length, 'OP de PA com produção apontada', 'OPs de PA com produção apontada') + ' (ex.: ' + amostra(l, 3) + ').' : 'Nenhuma OP de PA com produção apontada ainda.' };
+    },
+    paineis: function (d) { var l = A(d.paineis).filter(function (p) { return p && (p.Compartilhado === 'Sim' || p.Dono === usuario() || admin()); }); return { ok: l.length > 0, n: l.length, txt: l.length ? plural(l.length, 'painel disponível', 'painéis disponíveis') + ' (ex.: ' + amostra(l.map(function (p) { return txt(p.Nome); }), 4) + ').' : 'Nenhum painel criado ainda.' }; }
   };
   function checar(k) {
     if (!k || !CHK[k]) return null;
@@ -107,7 +115,9 @@
     pcp_capacidade: 'Planejamento › Capacidade', pcp_calendario: 'Planejamento › Calendário', custos: 'Projetos › Custos Industriais',
     acv: 'Projetos › ACV — Ciclo de Vida', sustentabilidade: 'Sustentabilidade / ICV / ACV (cálculo por OP — o assistente abre a tela)', bp: 'Projetos › Battery Passport',
     relatorios: 'Relatórios › Catálogo de relatórios', relatorios_dossie: 'Relatórios › Dossiê da OP', usuarios: 'Administração › Usuários / Segurança',
-    auditoria: 'Administração › Histórico de Modificações', topo: 'Topo da tela › Banco ▾'
+    auditoria: 'Administração › Histórico de Modificações', topo: 'Topo da tela › Banco ▾',
+    paradas: 'Produção › Paradas de Máquina', paradas_motivos: 'Produção › Motivos de Parada', testes_celulas: 'Produção › Testes das Células',
+    paineis: 'Painéis › Painéis', indicadores: 'Painéis › Indicadores', paineis_tabelas: 'Painéis › Tabelas e relações'
   };
 
   /* ---------------------------------------------------------------------
@@ -127,10 +137,10 @@
   var GRUPOS = [
     { id: 'Cadastros', icone: '🧩', desc: 'Materiais, processos, máquinas, estrutura, roteiro e formulação' },
     { id: 'Estoque', icone: '📦', desc: 'Entradas, ajustes, inventário e saldos' },
-    { id: 'Produção', icone: '🏭', desc: 'OP, apontamento, consumos, perdas e encerramento' },
+    { id: 'Produção', icone: '🏭', desc: 'OP, apontamento, consumos, perdas, paradas, testes das células e encerramento' },
     { id: 'Planejamento', icone: '📅', desc: 'MRP, calendário e capacidade' },
     { id: 'Custos, ACV e Passaporte', icone: '🌱', desc: 'Custo fechado, pegada de carbono e passaporte' },
-    { id: 'Relatórios', icone: '📑', desc: 'Excel dos módulos e dossiê da OP' },
+    { id: 'Relatórios', icone: '📑', desc: 'Excel dos módulos, dossiê da OP e painéis de indicadores' },
     { id: 'Administração', icone: '🔐', desc: 'Usuários, histórico e cópia de segurança' }
   ];
 
@@ -561,6 +571,39 @@
     }
   });
 
+  /* ---- Produção: paradas de máquina e testes das células (1.7.0) ---- */
+  fluxo('registrar_parada', {
+    titulo: 'Registrar uma parada de máquina', grupo: 'Produção',
+    resumo: 'Quanto tempo a máquina ficou parada e por quê (planejada ou não): entra na disponibilidade do OEE e no Pareto de paradas dos painéis.',
+    sinonimos: ['parada', 'paradas', 'maquina parada', 'equipamento parado', 'quebra', 'manutencao', 'setup', 'tempo parado', 'downtime', 'disponibilidade', 'oee'],
+    inicio: 'q_mot',
+    nos: {
+      q_mot: P('O motivo da parada já está cadastrado?', { chk: 'motivos_parada', decide: true, ajuda: 'Os motivos ficam em Motivos de Parada, cada um numa categoria (manutenção corretiva ou preventiva, setup, falta de material...). A categoria sugere se a parada é planejada.', sim: 'q_agora', nao: 'p_mot' }),
+      p_mot: Ps('Cadastrar o motivo', { tela: 'paradas_motivos', destacar: 'Salvar motivo', preencher: ['Categoria', 'Motivo', 'Planejada: Sim ou Não (a categoria sugere)'], obrig: ['Categoria', 'Motivo'],
+        destino: 'Lista de motivos da tela de paradas e do apontamento da OP.', erros: ['O mesmo motivo com outro nome ("Quebra do rolo" e "rolo quebrado"): o Pareto divide a causa.'], prox: 'q_agora' }),
+      q_agora: P('A máquina está parada agora?', { ajuda: 'Parada agora: inicie e encerre quando a máquina voltar. Já voltou: registre o intervalo com início e fim.', sim: 'p_agora', nao: 'p_intervalo' }),
+      p_agora: Ps('Iniciar a parada agora (no apontamento da OP)', { tela: 'producao', ctx: 'op', texto: 'No apontamento da OP, quadro "Paradas de máquina": escolha a máquina e o motivo e clique em "⏸ Iniciar parada agora". Quando a máquina voltar, "Encerrar agora".',
+        preencher: ['Máquina (as da OP)', 'Motivo'], obrig: ['Máquina', 'Motivo'], destino: 'Paradas de Máquina (aberta até encerrar) e os painéis (OEE e Pareto de paradas).', erros: ['Esquecer de encerrar: a parada fica aberta e não entra no OEE.'], prox: 'fim' }),
+      p_intervalo: Ps('Registrar o intervalo', { tela: 'paradas', destacar: 'Registrar intervalo (início e fim)', preencher: ['Máquina', 'Motivo', 'Data e hora de início', 'Hora de fim (e a data, se passou da meia-noite)', 'OP (opcional)'],
+        obrig: ['Máquina', 'Motivo', 'Início', 'Fim'], destino: 'Duração em minutos; disponibilidade do OEE e Pareto de paradas nos painéis.', erros: ['Intervalo que sobrepõe outra parada da mesma máquina: o MES recusa.'], prox: 'fim' }),
+      fim: E({ checklist: ['Motivo certo (planejada ou não)', 'Parada encerrada com a hora de fim'], proximos: ['painel'] })
+    }
+  });
+
+  fluxo('testes_celulas', {
+    titulo: 'Lançar o teste das células (energia e capacidade medidas)', grupo: 'Produção',
+    resumo: 'Energia (Wh) e capacidade (Ah) medidas na formação ou ciclagem de cada célula da OP de PA: vão para o passaporte e para o kWh gerado dos painéis.',
+    sinonimos: ['teste da celula', 'testes das celulas', 'formacao', 'ciclagem', 'energia medida', 'capacidade medida', 'kwh gerado', 'arbin', 'descarga'],
+    inicio: 'q_pa',
+    nos: {
+      q_pa: P('A OP de PA já tem células produzidas?', { chk: 'pa_produzido', decide: true, ajuda: 'O quadro de testes aparece no apontamento da OP de PA, com uma linha por célula produzida (etiqueta).', sim: 'p_teste', nao: { fluxo: 'apontar_producao' } }),
+      p_teste: Ps('Lançar os resultados', { tela: 'producao', ctx: 'op_pa', texto: 'No apontamento da OP de PA, quadro "Testes das células": escolha o tipo (formação, ciclagem...), a data e o equipamento e preencha a energia e a capacidade de descarga de cada célula.',
+        preencher: ['Tipo do teste', 'Data', 'Equipamento (ex.: Arbin)', 'Energia de descarga (Wh) por célula', 'Capacidade de descarga (Ah) por célula'], obrig: ['Energia ou capacidade de pelo menos uma célula'],
+        destino: 'Testes das Células, passaporte (média medida dos testes) e painéis (kWh gerado, energia medida × nominal).', erros: ['Digitar a energia de projeto no lugar da medida: o painel compara as duas.'], prox: 'fim' }),
+      fim: E({ checklist: ['Uma linha por célula testada', 'Unidades certas (Wh e Ah)'], proximos: ['passaporte', 'painel'] })
+    }
+  });
+
   /* ---- Relatórios ---- */
   fluxo('relatorio', {
     titulo: 'Exportar um relatório para o Excel', grupo: 'Relatórios',
@@ -599,6 +642,39 @@
         preencher: ['OP (digite, escolha ou leia o código de barras)', 'Conteúdo: Família inteira (OP de PA + OPs de PI) ou Só esta OP'], obrig: ['OP'],
         destino: 'Planilha com produção, etiquetas, saldos, materiais e lotes, PIs, tempos, perdas, custo, CO₂ e rastreabilidade.', prox: 'fim' }),
       fim: E({ checklist: ['OP certa', 'Conteúdo escolhido', 'Dossiê salvo'], proximos: ['relatorio'] })
+    }
+  });
+
+  /* ---- Painéis (1.7.0) ---- */
+  fluxo('painel', {
+    titulo: 'Montar um painel de indicadores', grupo: 'Relatórios',
+    resumo: 'Painéis por área com os indicadores oficiais e os seus: arraste os campos, escolha o gráfico e confira o cálculo aberto.',
+    sinonimos: ['painel', 'paineis', 'dashboard', 'kpi', 'grafico', 'power bi', 'modo tv', 'custo unitario', 'taxa de rejeito', 'kwh consumido'],
+    inicio: 'q_modelo',
+    nos: {
+      q_modelo: P('Já existe um painel da sua área?', { chk: 'paineis', decide: true, ajuda: 'Os painéis modelo (Produção, Qualidade, Custos, Sustentabilidade, Engenharia / P&D e Diretoria) já vêm com os indicadores oficiais.', sim: 'p_bloco', nao: 'p_criar' }),
+      p_criar: Ps('Criar o painel', { tela: 'paineis', destacar: '+ Novo painel', texto: '"Criar os painéis modelo das áreas" cria os seis painéis prontos; "+ Novo painel" começa um vazio.', destino: 'Lista de painéis por área (compartilhado ou só seu).', prox: 'p_bloco' }),
+      p_bloco: Ps('Montar os blocos', { tela: 'paineis', texto: 'Abra o painel e use "+ Bloco": arraste um indicador (★) ou um campo (Σ) para Valores e uma dimensão (Mês, Química, Modelo...) para o Eixo e, se quiser, para a Legenda; escolha o gráfico. A prévia já mostra os números de verdade.',
+        preencher: ['Valores: indicador ou campo', 'Eixo e Legenda: dimensões', 'Filtros do bloco', 'Meta e período (opcionais)'], destino: 'Painel salvo, com Excel, impressão/PDF e modo TV.',
+        erros: ['Somar unidades diferentes (kg + un): o MES mostra erro — separe por produto ou filtre a unidade.', 'Ler "faltam dados" como zero: falta apontamento (veja a cobertura embaixo do bloco).'], prox: 'p_conf' }),
+      p_conf: Ps('Conferir o número', { tela: 'paineis', texto: 'Clique num valor: "Cálculo aberto" mostra a fórmula e o passo a passo com os números; "Ver os registros" lista as linhas por trás; "Filtrar o painel" filtra todos os blocos.', prox: 'fim' }),
+      fim: E({ checklist: ['Números conferidos no cálculo aberto', 'Painel compartilhado com quem precisa'], proximos: ['indicador', 'relatorio'] })
+    }
+  });
+
+  fluxo('indicador', {
+    titulo: 'Criar um indicador (regra de cálculo)', grupo: 'Relatórios',
+    resumo: 'A fórmula de um número dos painéis: oficial (só o administrador, com versão e histórico) ou pessoal.',
+    sinonimos: ['indicador', 'indicadores', 'regra de calculo', 'formula do indicador', 'meta', 'sub indicador', 'novo indicador', 'medida'],
+    inicio: 'q_oficial',
+    nos: {
+      q_oficial: P('É um número oficial da empresa (todos usam o mesmo)?', { ajuda: 'Oficial: só o administrador cria e altera, e cada mudança de regra vira uma versão no histórico. Pessoal: cada usuário tem os seus (e pode compartilhar).', sim: 'q_adm', nao: 'p_ind' }),
+      q_adm: P('Você entrou como administrador?', { chk: 'admin', decide: true, sim: 'p_ind', nao: 'fim_sem' }),
+      p_ind: Ps('Escrever a regra', { tela: 'indicadores', destacar: '+ Novo indicador', texto: 'Escreva a fórmula ou use "Montar a partir de uma tabela de um módulo": tabela, campo, conta e condição (ex.: soma do custo das perdas só quando Alvo = Material). Para uma taxa, DIVIDIR(…; …).',
+        preencher: ['Nome e área', 'Fórmula (conferida na hora, com o valor de agora)', 'Formato, meta e "melhor quando"', 'Sub-indicadores (o indicador abre neles)'], obrig: ['Nome', 'Fórmula'],
+        destino: 'Biblioteca de indicadores e o editor dos painéis.', erros: ['Somar uma taxa (ex.: potência): use DIVIDIR(SOMA(numerador); SOMA(denominador)).', 'Oficial usando indicador pessoal: o MES recusa.'], prox: 'fim' }),
+      fim: E({ checklist: ['Valor de agora conferido', 'Descrição de como ler o número'], proximos: ['painel'] }),
+      fim_sem: E({ texto: 'Indicador oficial só o administrador cria: peça a ele, ou crie o seu pessoal.', checklist: ['Pedi ao administrador ou criei o meu pessoal'], proximos: ['painel'] })
     }
   });
 
@@ -642,11 +718,11 @@
   });
 
   var TRILHAS = [
-    { id: 'Operador', icone: '👷', desc: 'Receber material, apontar a produção, consumir lotes e PIs, registrar perdas.', fluxos: ['entrada_material', 'saldo_estoque', 'apontar_producao', 'consumir_materiais', 'registrar_perda', 'ajuste_estoque'] },
-    { id: 'PCP', icone: '📅', desc: 'Abrir OPs, MRP, capacidade, calendário, encerramento e custos.', fluxos: ['abrir_op', 'mrp', 'carga_capacidade', 'calendario', 'apontar_producao', 'encerrar_op', 'inventario', 'custo_op', 'relatorio', 'consistencia'] },
-    { id: 'Engenharia', icone: '🧩', desc: 'Cadastros-base: processos, materiais, máquinas, estrutura, roteiro e formulação.', fluxos: ['cad_processo', 'cad_material', 'cad_equipamento', 'cad_estrutura', 'roteiro', 'formulacao', 'abrir_op'] },
-    { id: 'Qualidade/ACV', icone: '🌱', desc: 'Perdas, encerramento, custo, pegada de carbono, passaporte e dossiê.', fluxos: ['registrar_perda', 'encerrar_op', 'custo_op', 'calcular_acv', 'passaporte', 'dossie', 'historico', 'consistencia'] },
-    { id: 'Administrador', icone: '🔐', desc: 'Usuários, cópia de segurança, histórico, cadastros e inventário.', fluxos: ['usuarios', 'backup', 'historico', 'cad_processo', 'cad_material', 'cad_equipamento', 'inventario', 'relatorio', 'consistencia'] }
+    { id: 'Operador', icone: '👷', desc: 'Receber material, apontar a produção, consumir lotes e PIs, registrar perdas, paradas e testes das células.', fluxos: ['entrada_material', 'saldo_estoque', 'apontar_producao', 'consumir_materiais', 'registrar_perda', 'ajuste_estoque', 'registrar_parada', 'testes_celulas'] },
+    { id: 'PCP', icone: '📅', desc: 'Abrir OPs, MRP, capacidade, calendário, paradas, encerramento, custos e painéis.', fluxos: ['abrir_op', 'mrp', 'carga_capacidade', 'calendario', 'apontar_producao', 'registrar_parada', 'encerrar_op', 'inventario', 'custo_op', 'relatorio', 'consistencia', 'painel'] },
+    { id: 'Engenharia', icone: '🧩', desc: 'Cadastros-base: processos, materiais, máquinas, estrutura, roteiro e formulação; testes das células e indicadores.', fluxos: ['cad_processo', 'cad_material', 'cad_equipamento', 'cad_estrutura', 'roteiro', 'formulacao', 'abrir_op', 'testes_celulas', 'indicador'] },
+    { id: 'Qualidade/ACV', icone: '🌱', desc: 'Perdas, encerramento, custo, pegada de carbono, testes, passaporte, dossiê e painéis.', fluxos: ['registrar_perda', 'encerrar_op', 'custo_op', 'calcular_acv', 'testes_celulas', 'passaporte', 'dossie', 'historico', 'consistencia', 'painel', 'indicador'] },
+    { id: 'Administrador', icone: '🔐', desc: 'Usuários, cópia de segurança, histórico, cadastros, inventário e indicadores oficiais.', fluxos: ['usuarios', 'backup', 'historico', 'cad_processo', 'cad_material', 'cad_equipamento', 'inventario', 'relatorio', 'consistencia', 'indicador', 'painel'] }
   ];
   function trilha(id) { return TRILHAS.find(function (t) { return t.id === id; }) || null; }
   /* as trilhas são a fonte: cada objetivo sabe em quais trilhas está */

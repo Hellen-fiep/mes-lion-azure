@@ -19,7 +19,8 @@ ATUALIZAR UMA INSTALAÇÃO QUE JÁ ESTÁ EM USO (SEM PERDER OS DADOS)
 2. Copie a pasta server deste pacote por cima da pasta server da instalação atual (substitua os arquivos; a pasta
    tem o servidor MES_LION_SERVER_JSON.ps1 e os arquivos adaptador_frontend.js, adaptador_passaporte.js,
    adaptador_codigos_estoque.js, adaptador_estoque_ajustes.js, adaptador_apontamento_pi.js,
-   adaptador_relatorios.js, adaptador_recursos_importacao.js e adaptador_helpdesk_assistente.js).
+   adaptador_relatorios.js, adaptador_recursos_importacao.js, adaptador_helpdesk_assistente.js,
+   adaptador_paradas_testes.js e adaptador_paineis.js).
    NÃO copie a pasta Dados: é nela que estão os seus dados, usuários e histórico. Não extraia o .zip inteiro
    por cima da pasta atual.
 3. Abra de novo com INICIAR_MES.bat. No modo rede basta atualizar o computador que abre o servidor; nos outros,
@@ -457,6 +458,62 @@ CONFERÊNCIA DOS CÁLCULOS E CONSISTÊNCIA DOS DADOS (VERSÃO 1.6.1)
 - Custo e CO₂ já gravados não mudam sozinhos. Para gravar o valor atual: reabra a OP de PA e encerre de novo (custo
   fechado) e calcule de novo na tela Sustentabilidade / ACV (CO₂).
 
+PARADAS DE MÁQUINA E TESTES DAS CÉLULAS (VERSÃO 1.7.0)
+- Produção > Motivos de Parada: cada motivo numa categoria (manutenção corretiva ou preventiva, setup, falta de
+  material, falta de operador, qualidade, utilidades, limpeza, sem programação, teste, outros). A categoria sugere
+  se a parada é planejada (manutenção preventiva e sem programação: sim); dá para mudar em cada motivo. O mesmo
+  motivo não se repete (sem diferença de acento ou maiúscula).
+- Produção > Paradas de Máquina: registra o intervalo (máquina, motivo, início e fim, OP opcional) com a duração em
+  minutos. Parada que sobrepõe outra da mesma máquina é recusada, e fim no futuro também. No Apontamento de
+  Produção, o quadro "Paradas de máquina" mostra as máquinas da OP: "Iniciar parada agora" abre a parada e
+  "Encerrar agora" fecha (no mesmo minuto fica com 0 min).
+- Testes das células: no Apontamento da OP de PA, o quadro "Testes das células" tem uma linha por célula produzida
+  (etiqueta) para a energia (Wh) e a capacidade (Ah) de descarga medidas na formação ou ciclagem. A tela Produção >
+  Testes das Células lista todos. O passaporte puxa a média MEDIDA ("Energia medida" e "Capacidade medida", com
+  quantas células foram testadas, o mínimo e o máximo); a energia de projeto continua à parte.
+
+PAINÉIS E INDICADORES (VERSÃO 1.7.0)
+- Menu Painéis (antes de Relatórios): Painéis, Indicadores e Tabelas e relações.
+- Tabelas e relações: os números vêm de 14 tabelas dos módulos (Produção, Perdas, Consumos, Etapas, Tempos de
+  máquina, Paradas, OEE, Custos, CO₂, Energia das células, Testes das células, Lotes de materiais, Capacidade e
+  OPs), cada campo com a unidade e o caminho da ligação. As tabelas se ligam pelas dimensões em comum (mês, ano,
+  OP, família, tipo e situação da OP, produto, modelo, formato e química da célula, projeto, processo, equipamento e
+  material). Cada tabela é somada no próprio nível e só depois juntada: um valor da OP não se repete por máquina.
+  Sem a dimensão em comum, o bloco mostra "não se relaciona" (o MES não inventa a ligação).
+- Regra de cálculo: fórmulas em português, argumentos separados por ";" — SOMA, MÉDIA, MÍN, MÁX, CONTAR e
+  CONTAR.DISTINTO (com condição opcional da mesma tabela), DIVIDIR, SE, E, OU, NÃO, ACUMULADO, ANTERIOR, ARRED, ABS,
+  MAIOR, MENOR e outros indicadores entre colchetes. Ex.: DIVIDIR(SOMA(Perdas[Custo]); [Células produzidas]). A
+  fórmula é conferida na hora e mostra o valor de agora. Travas: unidades diferentes não se somam (kg + un = erro),
+  taxa da linha não se soma, condição só da mesma tabela, conta com texto dá erro, referência circular é recusada.
+  Sem dado o resultado é "faltam dados", com a cobertura (quantos registros estão sem o valor) — nunca um zero
+  inventado. "Cálculo aberto" mostra a fórmula, o recorte e o passo a passo com os números; "Ver os registros"
+  lista as linhas por trás do número.
+- Indicadores oficiais (35, prontos): células produzidas, OEE (disponibilidade × performance × qualidade), taxa de
+  rejeito, perdas e perda de material, custo unitário de fabricação e os componentes (materiais, energia, mão de
+  obra e perdas, sem depreciação), tempo de ciclo real e padrão, capacidade instalada × programada × apontada, kWh
+  consumidos × gerados (energia medida nos testes), CO₂ por célula, minutos parados e energia e capacidade medidas ×
+  nominais. Só o administrador cria e altera um oficial; cada mudança de regra vira uma versão no histórico; oficial
+  só usa oficial. Cada usuário cria os seus (pessoais, que podem ser compartilhados), também pelo "Montar a partir
+  de uma tabela de um módulo" (sub-indicador: tabela, campo, conta e condição). Renomear um indicador atualiza as
+  fórmulas que o usam; excluir só depois de tirar dos indicadores e dos painéis que o usam.
+- Painéis: "Criar os painéis modelo das áreas" cria Produção, Qualidade, Custos, Sustentabilidade, Engenharia / P&D
+  e Diretoria. "+ Bloco" abre o editor: arraste um indicador ou um campo para Valores e uma dimensão para o Eixo e a
+  Legenda (ou use o "+"), escolha o visual (cartão, colunas, colunas empilhadas, barras, linhas, barras + linha,
+  pizza, medidor, tabela, matriz, dispersão), os filtros do bloco, a meta e o período próprio. No topo: período e
+  química, modelo, produto, equipamento e projeto; clicar num gráfico filtra o painel inteiro. Excel do bloco, do
+  painel e dos registros (com a aba Parâmetros e o registro no Histórico de Modificações), Imprimir / PDF e Modo TV
+  (tela cheia, atualiza a cada 5 minutos; Esc sai). Painel compartilhado: todos veem; só o dono e o administrador
+  alteram.
+- Fechar mês (administrador): grava o valor de cada indicador oficial de um mês que já terminou. O cartão com o
+  período de um mês fechado mostra o valor gravado (e o de hoje, se mudou depois).
+- Ver painéis não grava nada: as contas dos módulos rodam sem salvar e os dados ficam exatamente como estavam.
+- Definições conferidas com as regras de custo da 1.6.1: perda de material = perdido ÷ (consumido + perdas por
+  retirada adicional, ou sem origem); perdas sobre o custo e custo unitário só das famílias produzidas; kWh gerado só
+  com teste (sem teste fica "faltam dados", nunca a energia de projeto). OEE e tempo de ciclo real dependem do
+  apontamento de tempo por máquina; sem ele ficam "faltam dados".
+- Help Desk: objetivos "Registrar uma parada de máquina", "Lançar o teste das células", "Montar um painel de
+  indicadores" e "Criar um indicador", nas trilhas de cada perfil.
+
 ONDE FICAM OS DADOS (pasta Dados)
 - MES_LION_DATA.json ............. todos os dados do MES
 - usuarios.json .................. usuários (senhas protegidas por hash, nunca em texto)
@@ -500,6 +557,17 @@ O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
 - Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
 
 VERSÕES DO SERVIDOR JSON
+- 1.7.0 (12/11/2026): paradas de máquina (motivos por categoria, intervalo com duração, parada pelo apontamento da
+  OP, sem sobreposição); testes das células (energia e capacidade medidas por célula da OP de PA, no passaporte);
+  menu Painéis — 14 tabelas dos módulos ligadas pelas dimensões, regra de cálculo com fórmulas conferidas (sem somar
+  unidades diferentes, "faltam dados" em vez de zero, cálculo aberto e registros), 35 indicadores oficiais (só o
+  administrador altera, com versão e histórico) e pessoais, painéis modelo por área com editor de arrastar, filtro
+  cruzado, Excel, PDF, modo TV e fechamento do mês; quatro objetivos novos no Help Desk. Arquivos novos:
+  server\adaptador_paradas_testes.js e server\adaptador_paineis.js; alterados: server\adaptador_passaporte.js
+  (energia e capacidade medidas), server\adaptador_helpdesk_assistente.js e server\MES_LION_SERVER_JSON.ps1 (inclui
+  os arquivos novos). Os dados da versão 1.6.1 são lidos sem conversão; as coleções novas (paradas,
+  paradas_motivos, testes_celulas, indicadores, paineis e paineis_fechamentos) começam vazias e os indicadores
+  oficiais são criados na primeira vez que se abre o menu Painéis.
 - 1.6.1 (11/11/2026): revisão dos cálculos — OP encerrada só com o consumo real no custo e no CO₂ (com aviso no
   encerramento); custo por OP com energia, mão de obra e perdas das etapas da própria OP; estoque com conversão de
   unidade (lote na unidade da entrada, material na unidade do material, custo do lote em g, mL etc.); lote NEGATIVO,

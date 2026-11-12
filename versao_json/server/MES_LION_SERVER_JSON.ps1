@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $VersaoMes = 'MES LION 1.0 JSON'
-$VersaoServidor = '1.6.1 (2026-11-11)'
+$VersaoServidor = '1.7.0 (2026-11-12)'
 $EhPS7 = $PSVersionTable.PSVersion.Major -ge 6
 $EhWindows = ($env:OS -eq 'Windows_NT')
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -986,6 +986,11 @@ function Ler-Multipart($req) {
 #   adaptador_helpdesk_assistente.js - Help Desk com o assistente passo a passo (treinamento): objetivos com perguntas
 #                             de sim e nao, checagens nos dados, "Ir para a tela", checklist, trilhas por perfil com o
 #                             progresso de cada usuario e o registro de "nao encontrei o que queria"
+#   adaptador_paradas_testes.js - paradas de maquina (motivos, planejada ou nao, inicio e fim) e testes das celulas
+#                             (energia e capacidade medidas por celula da OP de PA)
+#   adaptador_paineis.js    - menu Paineis: tabelas dos modulos ligadas pelas dimensoes, regra de calculo (formulas
+#                             conferidas, sem somar unidades diferentes), indicadores oficiais (so o administrador) e
+#                             pessoais com versao, paineis por area com editor de arrastar, filtro cruzado, Excel e TV
 # =====================================================================================================
 $ArquivosAdaptador = @(
     @{ Arquivo = 'adaptador_frontend.js'; Id = 'mes-adaptador-json' },
@@ -995,7 +1000,9 @@ $ArquivosAdaptador = @(
     @{ Arquivo = 'adaptador_apontamento_pi.js'; Id = 'mes-adaptador-apontamento-pi' },
     @{ Arquivo = 'adaptador_relatorios.js'; Id = 'mes-adaptador-relatorios' },
     @{ Arquivo = 'adaptador_recursos_importacao.js'; Id = 'mes-adaptador-recursos-importacao' },
-    @{ Arquivo = 'adaptador_helpdesk_assistente.js'; Id = 'mes-adaptador-helpdesk-assistente' }
+    @{ Arquivo = 'adaptador_helpdesk_assistente.js'; Id = 'mes-adaptador-helpdesk-assistente' },
+    @{ Arquivo = 'adaptador_paradas_testes.js'; Id = 'mes-adaptador-paradas-testes' },
+    @{ Arquivo = 'adaptador_paineis.js'; Id = 'mes-adaptador-paineis' }
 )
 $script:AdaptadorHtml = ''
 function Carregar-Adaptador {

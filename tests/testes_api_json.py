@@ -97,7 +97,11 @@ ok('mes-adaptador-relatorios' in r.text and 'MES_ADAPTADOR_RELATORIOS' in r.text
 ok('mes-adaptador-recursos-importacao' in r.text and 'MES_ADAPTADOR_RECURSOS_IMPORTACAO' in r.text and 'mesRecursosImportacaoAPI' in r.text
    and 'mes-adaptador-helpdesk-assistente' in r.text and 'MES_ADAPTADOR_HELPDESK_ASSISTENTE' in r.text and 'mesHelpDeskAPI' in r.text
    and r.text.index('mes-adaptador-helpdesk-assistente') > r.text.index('mes-adaptador-recursos-importacao') > r.text.index('mes-adaptador-relatorios'),
-   'adaptadores 1.6.0 incluídos por último: importação de equipamentos e assistente do Help Desk (server/adaptador_recursos_importacao.js, adaptador_helpdesk_assistente.js)', '')
+   'adaptadores 1.6.0 incluídos depois dos relatórios: importação de equipamentos e assistente do Help Desk (server/adaptador_recursos_importacao.js, adaptador_helpdesk_assistente.js)', '')
+ok('mes-adaptador-paradas-testes' in r.text and 'MES_ADAPTADOR_PARADAS_TESTES' in r.text and 'mesParadasTestesAPI' in r.text
+   and 'mes-adaptador-paineis' in r.text and 'MES_ADAPTADOR_PAINEIS' in r.text and 'mesPaineisAPI' in r.text
+   and r.text.index('mes-adaptador-paineis') > r.text.index('mes-adaptador-paradas-testes') > r.text.index('mes-adaptador-helpdesk-assistente'),
+   'adaptadores 1.7.0 incluídos por último: paradas e testes das células, e os painéis (server/adaptador_paradas_testes.js, adaptador_paineis.js)', '')
 ok('mes_plataforma_azure.js' not in r.text, 'index.html sem o adaptador do Azure', '')
 r = anon.get(BASE + '/js/app.js?v=1.0.21'); ok(r.status_code == 200 and r.headers.get('content-type', '').startswith('application/javascript'), 'js/app.js servido (application/javascript)', r.headers.get('content-type'))
 r = anon.get(BASE + '/assets/logo-mes.jpg'); ok(r.status_code == 200 and r.headers.get('content-type') == 'image/jpeg', 'imagem servida', r.status_code)

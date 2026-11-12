@@ -85,13 +85,15 @@ servida:
 | Arquivo | `<script id>` | Versão |
 |---|---|---|
 | `adaptador_frontend.js` | `mes-adaptador-json` | 1.0.0 (calendário por máquina na 1.4.0) |
-| `adaptador_passaporte.js` | `mes-adaptador-passaporte` | 1.1.0 |
+| `adaptador_passaporte.js` | `mes-adaptador-passaporte` | 1.1.0 / 1.7.0 |
 | `adaptador_codigos_estoque.js` | `mes-adaptador-codigos-estoque` | 1.2.0 / 1.3.0 / 1.6.0 / 1.6.1 |
 | `adaptador_estoque_ajustes.js` | `mes-adaptador-estoque-ajustes` | 1.3.0 / 1.6.1 |
 | `adaptador_apontamento_pi.js` | `mes-adaptador-apontamento-pi` | 1.4.0 / 1.6.1 |
 | `adaptador_relatorios.js` | `mes-adaptador-relatorios` | 1.5.0 / 1.6.1 |
 | `adaptador_recursos_importacao.js` | `mes-adaptador-recursos-importacao` | 1.6.0 |
-| `adaptador_helpdesk_assistente.js` | `mes-adaptador-helpdesk-assistente` | 1.6.0 / 1.6.1 |
+| `adaptador_helpdesk_assistente.js` | `mes-adaptador-helpdesk-assistente` | 1.6.0 / 1.6.1 / 1.7.0 |
+| `adaptador_paradas_testes.js` | `mes-adaptador-paradas-testes` | 1.7.0 |
+| `adaptador_paineis.js` | `mes-adaptador-paineis` | 1.7.0 |
 
 Correções de `adaptador_frontend.js`:
 
@@ -356,6 +358,73 @@ Regras corrigidas depois da conferência de todos os cálculos na base real (os 
     fator, etapa sem tempo ou sem potência, etapa com mais de 25% (e 100 kWh) da energia da família e OP encerrada com
     material planejado sem consumo. `custo_op` ganha as colunas Energia, Mão de obra, kWh e Perdas.
 
+### Paradas, testes das células e Painéis (1.7.0)
+
+Os dados da 1.6.1 são lidos sem conversão. Coleções novas: `paradas`, `paradas_motivos`, `testes_celulas`,
+`indicadores`, `paineis` e `paineis_fechamentos`.
+
+44. **Paradas de máquina** (`adaptador_paradas_testes.js`): `data.paradas_motivos` (`IdMotivoParada` PRM0001…,
+    `Categoria`, `Motivo`, `Planejada` sugerida pela categoria, `Ativo`; motivo repetido sem acento/maiúscula recusado) e
+    `data.paradas` (`IdParada`, equipamento pela chave código + nome dos recursos, `CodOP` e `IdRecursoRoteiro`
+    opcionais, motivo, `Planejada`, início e fim `dd/mm/aaaa hh:mm`, `DuracaoMin`, `Status` Aberta/Encerrada).
+    `registrarParada` recusa fim antes do início, fim no futuro, segunda parada aberta na mesma máquina e sobreposição
+    com outra parada da máquina; "Encerrar agora" no mesmo minuto fica com 0 min. Telas `paradas` e `paradas_motivos`
+    no grupo Produção e o quadro `#mpt_paradas` no Apontamento de Produção (máquinas das etapas da OP).
+45. **Testes das células**: `data.testes_celulas` (OP de PA, célula = etiqueta, tipo, data, equipamento,
+    `EnergiaDescargaWh`, `CapacidadeDescargaAh`); quadro `#mpt_testes` no apontamento da OP de PA (uma linha por célula
+    produzida) e a tela `testes_celulas`. `resumoTestes(op)` = média, mínimo e máximo do teste mais recente de cada
+    célula. O passaporte (`adaptador_passaporte.js`) ganha `BP_EnergiaMedidaWh` e `BP_CapacidadeMedidaAh`, puxados
+    desse resumo (com quantas células e o mínimo/máximo), e o KPI "Energia medida" no painel do cliente.
+    `window.mesParadasTestesAPI` expõe as funções para os testes e para os painéis.
+46. **Tabelas dos painéis** (`adaptador_paineis.js`, seção 2): 14 tabelas montadas das mesmas funções das telas —
+    `producao`, `perdas` (custo por `v102ProductLossCost`/`v102MaterialLossCost`), `consumos`, `etapas`
+    (`v4033AuditCostPI`, tempo usado no custo, valores da OP com `unico: 'OP'`), `tempos` (operação descontando as
+    paradas dentro do intervalo), `paradas`, `oee` (OP × máquina: tempo em operação, paradas planejadas e não
+    planejadas, tempo padrão do produzido e das boas), `custos` (`v4033CostScope`), `co2` (`calcSustFamiliaOPV33`),
+    `energia` (kWh consumidos da auditoria e kWh MEDIDOS nos testes; sem teste = vazio), `testes`, `lotes`
+    (`mesLinhasEstoque`), `capacidade` (`mesCapRelatorioDados` por mês) e `ops`. Cada campo tem tipo, unidade (`u`) ou
+    unidade da linha (`um`), dimensão (`dim`), caminho da ligação (`c`), `taxa` (não se soma) e `unico` (repete por
+    OP: conta uma vez). Dimensões: mês, ano, OP, família, tipo e situação da OP, produto, modelo, formato e química
+    (da Estrutura subindo pelo "Código Pai"), projeto, processo, equipamento e material. Registros de OPs excluídas
+    ficam fora, com aviso. Tudo roda em `protegido()`: `saveLocal` desligado e cada coleção devolvida exatamente como
+    estava (um painel inteiro monta as tabelas numa proteção só).
+47. **Motor** (seção 4): cada tabela é filtrada (período, filtros do painel e do bloco; filtro do clique "suave"
+    ignora a tabela sem a dimensão, com aviso) e agrupada no próprio nível; as tabelas só se juntam pelo eixo e pela
+    legenda — sem a dimensão o valor fica "não se relaciona". Agregação com unidade: várias unidades = erro; soma sem
+    registro = 0 "neutro" (sem unidade); registros sem o valor = "faltam dados" com a cobertura por registro
+    distinto. Razões calculadas como razão das somas (total e linha Total reavaliam a fórmula). `ACUMULADO` e
+    `ANTERIOR` sobre o eixo (mês contínuo quando o eixo é o mês). `calculoAberto` (passo a passo com os números do
+    ponto) e `registros` (linhas por trás, com as condições da fórmula).
+48. **Linguagem das fórmulas** (seção 3): `tokenizar` → `analisarTexto` → `verificar` → `avaliar`. Funções SOMA, MÉDIA,
+    MÍN, MÁX, CONTAR, CONTAR.DISTINTO (campo + condição opcional da mesma tabela), DIVIDIR (2.º argumento zero ou vazio
+    → "sem base" ou o 3.º), SE, E, OU, NÃO, ACUMULADO, ANTERIOR, ARRED, ABS, MAIOR, MENOR; operadores + − * / ^ e
+    comparações; texto entre aspas; `Tabela[Campo]`, `'Nome com espaço'[Campo]` e `[Indicador]`. Travas: campo fora
+    de agregação, agregação dentro de agregação, taxa somada, condição de outra tabela, campo/tabela/função/indicador
+    desconhecidos, número de argumentos, conta com texto ou condição, soma/subtração de unidades diferentes,
+    referência circular (direta e pelos sub-indicadores: `info.todos`).
+49. **Indicadores** (`data.indicadores`): 35 oficiais semeados (`semear`, sem gravar: vão para o servidor na próxima
+    gravação) com `Formula`, `Formato`, `Casas`, `Sentido`, `Meta`, `Componentes` (sub-indicadores), `Versao` e
+    `Historico`. `salvarIndicador`: oficial só pelo ADMIN e só usando oficiais (também aninhados); nome repetido
+    recusado; mudança de regra, nome, meta ou formato cria versão; renomear troca `[nome antigo]` nas fórmulas dos
+    indicadores e dos blocos; `excluirIndicador` recusa se usado em indicador ou painel. Definições conferidas com as
+    regras da 1.6.1: perda de material = perdido ÷ (consumido + retirada adicional ou sem origem); perdas sobre o custo
+    e custo unitário das famílias produzidas; kWh gerado só medido.
+50. **Painéis** (`data.paineis`: `IdPainel`, `Nome`, `Area`, `Dono`, `Compartilhado`, `Filtros`, `Blocos` com `x`,
+    `y`, `w`, `h` na grade de 12 colunas, `visual`, `eixo`, `legenda`, `valores` [`{indicador}` ou `{formula, nome,
+    formato, casas, acumulado, origem}`], `filtros`, `meta`, `sentido`, `periodoProprio`, `ordem`, `topN`). Modelos
+    Produção, Qualidade, Custos, Sustentabilidade, Engenharia / P&D e Diretoria. Visuais em SVG próprio (offline):
+    cartão com semáforo, colunas, empilhadas (recusa unidades diferentes), barras, linhas, barras + linha (eixo à
+    direita), pizza, medidor, tabela, matriz e dispersão; aviso quando há unidades diferentes no mesmo eixo. Clique:
+    filtrar o painel, cálculo aberto, registros e abrir nos componentes. Editor com campos dos módulos (arrastar ou
+    "+"), regra de cálculo conferida na hora com o valor de agora, prévia e "de onde vêm os números". Layout sem
+    sobreposição, Excel (`mesXlsx`: bloco com Dados + Parâmetros, painel com uma aba por bloco, registros) registrado
+    em `/api/relatorios/exportacao` (`painel_bloco`, `painel_painel`, `painel_registros`), Imprimir/PDF, modo TV
+    (5 min; Esc). `fecharMes` (ADMIN, mês terminado) grava `data.paineis_fechamentos`. Só o dono e o ADMIN alteram.
+    `window.mesPaineisAPI` (`tabelas`, `linhas`, `compilar`, `executar`, `calculoAberto`, `registros`, `indicadores`,
+    `salvarIndicador`, `excluirIndicador`, `criarModelos`, `criarPainel`, `fecharMes`, `fechamentos`…) para os testes.
+51. **Help Desk 1.7.0**: objetivos `registrar_parada`, `testes_celulas`, `painel` e `indicador`, checagens
+    `motivos_parada`, `pa_produzido` e `paineis`, telas novas e trilhas atualizadas.
+
 ## Testes (CI: job `versao-json`, Windows PowerShell 5.1 real)
 
 | Suíte | O que confere |
@@ -370,7 +439,8 @@ Regras corrigidas depois da conferência de todos os cálculos na base real (os 
 | `tests/teste_apontamento_pi_json.py` | 1.6.1: encerramento avisa o material planejado sem consumo, que fica com R$ 0 no custo e fora da ACV (OP aberta segue projetada); lista de lotes com o saldo; consumo acima do saldo (sem confirmar não grava; confirmado, marcado e lote NEGATIVO, gravado no servidor); MRP e reserva descontando o já consumido; conversão de UM (L → kg pelo fator, g → kg, un → kg, sem regra); aviso de saldo negativo na tela. 1.4.0: correção da QtdProduzida e baixa única das famílias encerradas; motivos de perda (duplicado, parecido, lista, importação); fluxo de PIs no roteiro (validação, sugestão, cópia) e Estrutura em níveis; PI nas OPs abertas; etiquetas (kg, N por etiqueta, por unidade, aglutinada, impressão); consumo de PI pela etiqueta, perda na etapa, saldo insuficiente, estorno; origem da perda (PI e material com lote); custo/CO₂ sem dupla contagem; PI isolado com custo herdado; tempo por máquina (intervalo, iniciar/finalizar, sobreposição, energia) e calendário por máquina; baixa automática no encerramento; estoque PI/PA (saldos, etiquetas, rastreio, baixa/estorno, cancelamento, conferência); exclusão bloqueada; servidor e F5 |
 | `tests/teste_relatorios_json.py` | 1.6.1: Custo por OP (energia + MOD das OPs = família; total efetivo das OPs = custo da família; colunas novas), família encerrada só com o consumo real, MRP com planejado e já consumido, Consistência dos dados (verificações esperadas na base de teste, lotes negativos e códigos repetidos, ordem e resumo); saldo por material = soma dos lotes convertidos. 1.5.0: menu e catálogo (busca, módulo); todos os relatórios executam e abrem na tela; nenhum dado alterado nem gravado ao executar; números = funções das telas (saldo por lote e por material, livro PI/PA, produção, tempo planejado e tempo real gravado na etapa, Pareto, carga × capacidade, MRP, custo e CO₂ da família); saída e estorno do Ajuste de Estoque no relatório e no saldo do lote; filtros (período, OP, produto sem acento, situação, busca), colunas e ordem; `.xlsx` baixado pela tela conferido com openpyxl (tipos, formatos, unidade no cabeçalho, SUBTOTAL, filtro, painel, Parâmetros); histórico das exportações; modelos (salvar, substituir, abrir, exportar, excluir, servidor); dossiê (abas, resumo, custo/CO₂, rastreabilidade, só a OP) |
 | `tests/teste_importacao_recursos_json.py` | 1.6.0: botão e tela; modelo em branco conferido com openpyxl (abas, grupos mesclados, painel, listas suspensas e nomes, Listas, exemplos tipados, Instruções); exemplos ignorados; validação (código automático, novo processo herdando do cadastro, atualização sem acento, listas, capacidade com padrões e uma vez por código); importação gravada no servidor (recursos + cadastro ligados, custos, capacidade e histórico, registro e auditoria); mesma planilha de novo sem duplicar; modelo com os cadastrados de volta sem mudança (códigos repetidos, `0,80`, espaço no fim); erros que bloqueiam e planilha de erros (e subir de novo); CSV com nomes dos campos; "Atualizar" desmarcado; troca de código e processo pelo ID; desfazer (exato, linha alterada depois, equipamento em roteiro) |
-| `tests/teste_helpdesk_assistente_json.py` | 1.6.0/1.6.1: estrutura dos 27 objetivos e trilhas; todas as telas dos passos abrem e os botões destacados existem; abas do Help Desk (fluxo antigo preservado); "Nesta tela"; busca com sinônimos; "não encontrei" gravado; trilha e progresso por usuário; checagem e sugestão; desvio e volta; voltar; checklist; ir para a tela, destaque e assistente no canto; OP pré-selecionada; continuar depois de recarregar; equipe e Excel (ADMIN); usuário comum |
+| `tests/teste_helpdesk_assistente_json.py` | 1.6.0/1.6.1/1.7.0: estrutura dos 31 objetivos e trilhas (busca dos objetivos novos); todas as telas dos passos abrem e os botões destacados existem; abas do Help Desk (fluxo antigo preservado); "Nesta tela"; busca com sinônimos; "não encontrei" gravado; trilha e progresso por usuário; checagem e sugestão; desvio e volta; voltar; checklist; ir para a tela, destaque e assistente no canto; OP pré-selecionada; continuar depois de recarregar; equipe e Excel (ADMIN); usuário comum |
+| `tests/teste_paineis_json.py` | 1.7.0: menus; ver painéis, indicadores e tabelas não grava nem altera dados; números do motor = funções dos módulos (custo da família, custo unitário e componentes, perdas, kWh e CO₂ da Sustentabilidade, células produzidas, perda de material com a regra do custo); várias unidades, "faltam dados" com cobertura, "não se relaciona", acumulado, filtros, cálculo aberto e registros; travas das fórmulas e regras dos indicadores (circular direta e indireta, oficial só usa oficial, renomear, excluir, versão); paradas (motivos, intervalo, sobreposição, parada pelo apontamento e encerramento) e testes das células (passaporte e kWh gerado); painéis modelo, filtro cruzado, filtro de período, componentes, Excel (bloco, painel, registros) e histórico; editor ("+" e arrastar, regra conferida, prévia); montador de sub-indicador; layout; modo TV; fechar o mês; usuário comum |
 | `tests/teste_gerar_pacote_json.py` | `.zip` para outros usuários com dados, sem backups/logs |
 | `tests/teste_redefinir_senha_json.py` | `REDEFINIR_SENHA.bat`: nova senha PBKDF2, reativação, senhas que não conferem |
 
