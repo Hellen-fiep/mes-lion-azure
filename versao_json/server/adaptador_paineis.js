@@ -856,7 +856,7 @@
           var prep = cx.prep(n.tb);
           if (prep.sem.length) return { v: null, u: '', semRelacao: prep.tb.nome + ' ' + prep.sem.join(' e ') };
           var r1 = agregar(n, linhasGrupo(prep, cx.grupo), prep, cx.cob);
-          if (cx.explicar) cx.explicar.push(textoNo(n) + ' = ' + textoValor(r1));
+          if (cx.explicar) cx.explicar.push(textoNo(n) + ' = ' + textoValor(r1, r1 && typeof r1.u === 'string' && r1.u.indexOf('R$') === 0 ? 'moeda' : undefined));
           return r1;
         }
         if (fn.janela) {
