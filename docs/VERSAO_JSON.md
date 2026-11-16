@@ -427,7 +427,7 @@ Os dados da 1.6.1 são lidos sem conversão. Coleções novas: `paradas`, `parad
 
 ### OP impressa por máquina (1.7.1)
 
-Os dados da 1.7.0 são lidos sem conversão e nada é gravado.
+Os dados da 1.7.0 são lidos sem conversão; a mudança é só na montagem da página impressa.
 
 52. **"PDF OP Produção"** (`adaptador_codigos_estoque.js`, seção 10): a página da OP do frontend
     (`patch_v2_1…js`, `window.opProductionPage`) comparava os materiais com as etapas só pela operação (`Ordem`): cada
@@ -445,6 +445,12 @@ Os dados da 1.7.0 são lidos sem conversão e nada é gravado.
     `:first-child` por causa do cabeçalho: saía uma página só com o cabeçalho). Quantidade com mais de 9 casas é
     arredondada a 9 (ruído de ponto flutuante). `window.mesOPMateriaisPorMaquina(codOP)` devolve a distribuição
     (máquinas com os códigos e os sem máquina) para os testes.
+    Observação (comportamento do frontend, anterior à 1.7.1 e não alterado): `reportOP`, `reportPicking`,
+    `reportCustosOP` e `exportSelectedExcel` chamam `v4050RefreshCalculatedData()` + `saveLocal()` antes de gerar o
+    documento — as OPs de slurry com fórmula (inclusive as encerradas) têm `QtdPlanejada` e `CustoTotal` dos materiais
+    recalculados e gravados. Na base de teste, imprimir qualquer OP leva o MP0001 da OP …-01 de 0,4478 para 0,2985 kg
+    (solvente como partes sobre os sólidos, e não 50% da massa total como na geração da OP). Por isso o teste chama
+    `opProductionPage` direto.
 
 ## Testes (CI: job `versao-json`, Windows PowerShell 5.1 real)
 

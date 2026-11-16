@@ -577,7 +577,8 @@ VERSÕES DO SERVIDOR JSON
 - 1.7.1 (16/11/2026): OP impressa ("PDF OP Produção") com cada material uma única vez, só na máquina onde o roteiro
   o indica (antes se repetia em todas as máquinas da operação); "Materiais sem máquina indicada no roteiro" quando
   falta a indicação; a primeira OP começa na primeira página. Arquivos alterados: server\adaptador_codigos_estoque.js
-  e server\MES_LION_SERVER_JSON.ps1 (versão). Os dados da versão 1.7.0 são lidos sem conversão e nada é gravado.
+  e server\MES_LION_SERVER_JSON.ps1 (versão). Os dados da versão 1.7.0 são lidos sem conversão (a mudança é só na
+  montagem da página impressa).
 - 1.7.0 (12/11/2026): paradas de máquina (motivos por categoria, intervalo com duração, parada pelo apontamento da
   OP, sem sobreposição); testes das células (energia e capacidade medidas por célula da OP de PA, no passaporte);
   menu Painéis — 14 tabelas dos módulos ligadas pelas dimensões, regra de cálculo com fórmulas conferidas (sem somar
