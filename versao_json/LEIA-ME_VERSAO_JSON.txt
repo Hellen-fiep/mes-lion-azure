@@ -130,7 +130,7 @@ CÓDIGOS DE BARRAS (VERSÃO 1.2.0)
 - Etiquetas de materiais: agora com o código de barras do material e o da entrada/lote, e a localização.
 - Ordens de Produção: o código de barras da OP é gravado quando a OP é gerada (campo CodigoBarras = número da OP),
   aparece no detalhe da OP e sai impresso no "PDF OP Produção", com o código de barras de cada material na tabela de
-  materiais de cada etapa.
+  materiais da máquina onde ele entra (veja OP IMPRESSA).
 - Apontamento Produção: "Buscar OP pelo código de barras" no topo (leu, a OP abre). No bloco "Consumo de materiais e
   lotes", "Ler código do material ou da etiqueta do lote": o material lido é escolhido na lista (se não estiver
   previsto na OP, o MES avisa e não seleciona); o aviso mostra os lotes com saldo e a localização. Lendo a etiqueta do
@@ -514,6 +514,23 @@ PAINÉIS E INDICADORES (VERSÃO 1.7.0)
 - Help Desk: objetivos "Registrar uma parada de máquina", "Lançar o teste das células", "Montar um painel de
   indicadores" e "Criar um indicador", nas trilhas de cada perfil.
 
+OP IMPRESSA: MATERIAIS NA MÁQUINA DO ROTEIRO (VERSÃO 1.7.1)
+- No "PDF OP Produção" cada máquina da operação tem a sua etapa (recurso, tempo, pessoas e anotações), e cada
+  material da OP sai uma única vez, só na máquina onde o roteiro o indica. Antes o material saía em todas as
+  máquinas da mesma operação (ex.: na operação 80, o eletrólito, o aditivo e o case apareciam na Injetora, na Solda
+  Tabs, no Arbin e na Estufa Aging; agora só na Injetora de eletrólito).
+- A máquina vem do recurso gravado na linha da OP (gerada pelo roteiro). Em OP antiga sem esse dado, o MES procura
+  o mesmo material na mesma operação em Roteiro - Materiais; operação com uma só máquina usa essa máquina.
+- PI que entra numa operação ("PIs que entram nesta operação", no roteiro) sai na máquina escolhida ali; sem
+  máquina escolhida, na primeira máquina da operação (a mesma regra do apontamento).
+- Material sem máquina indicada no roteiro sai uma vez no fim, em "Materiais sem máquina indicada no roteiro" (com a
+  operação), em vez de se repetir. Para que saia na etapa certa, indique a máquina no roteiro.
+- Máquina sem material indicado mostra "Sem materiais indicados no roteiro para este recurso".
+- A primeira OP começa na primeira página (antes saía uma página só com o cabeçalho do relatório); com várias OPs
+  marcadas, cada uma continua começando em página nova. A quantidade sai sem o ruído de ponto flutuante
+  (0.7720959999999999 vira 0.772096). Os PIs da família listados na OP de PA só como genealogia continuam fora da
+  impressão, como antes.
+
 ONDE FICAM OS DADOS (pasta Dados)
 - MES_LION_DATA.json ............. todos os dados do MES
 - usuarios.json .................. usuários (senhas protegidas por hash, nunca em texto)
@@ -557,6 +574,10 @@ O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
 - Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
 
 VERSÕES DO SERVIDOR JSON
+- 1.7.1 (16/11/2026): OP impressa ("PDF OP Produção") com cada material uma única vez, só na máquina onde o roteiro
+  o indica (antes se repetia em todas as máquinas da operação); "Materiais sem máquina indicada no roteiro" quando
+  falta a indicação; a primeira OP começa na primeira página. Arquivos alterados: server\adaptador_codigos_estoque.js
+  e server\MES_LION_SERVER_JSON.ps1 (versão). Os dados da versão 1.7.0 são lidos sem conversão e nada é gravado.
 - 1.7.0 (12/11/2026): paradas de máquina (motivos por categoria, intervalo com duração, parada pelo apontamento da
   OP, sem sobreposição); testes das células (energia e capacidade medidas por célula da OP de PA, no passaporte);
   menu Painéis — 14 tabelas dos módulos ligadas pelas dimensões, regra de cálculo com fórmulas conferidas (sem somar

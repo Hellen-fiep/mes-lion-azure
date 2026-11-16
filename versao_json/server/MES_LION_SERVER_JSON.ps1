@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $VersaoMes = 'MES LION 1.0 JSON'
-$VersaoServidor = '1.7.0 (2026-11-12)'
+$VersaoServidor = '1.7.1 (2026-11-16)'
 $EhPS7 = $PSVersionTable.PSVersion.Major -ge 6
 $EhWindows = ($env:OS -eq 'Windows_NT')
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -969,7 +969,8 @@ function Ler-Multipart($req) {
 #   adaptador_passaporte.js - passaporte da bateria e biblioteca de fatores ambientais (GWP100)
 #   adaptador_codigos_estoque.js - codigos de barras (materiais, entradas, OP, apontamento, passaporte), localizacao,
 #                             locais e inventario de estoque, saldo reservado em OPs, Recursos / Maquinas em tela unica
-#                             e PIs filhos gerados pelos processos escolhidos
+#                             e PIs filhos gerados pelos processos escolhidos; 1.7.1: OP impressa com cada material uma
+#                             vez, so na maquina indicada no roteiro
 #   adaptador_estoque_ajustes.js - estoque minimo (materiais, MRP, Plano de Producao), Ajuste de Estoque (entrada/saida
 #                             manual, baixa tecnica sem OP, correcao do saldo geral), MRP com o saldo do Estoque e
 #                             Kanban arrastavel no Calendario de Testes de Caracterizacao

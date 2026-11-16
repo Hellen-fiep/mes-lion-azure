@@ -28,10 +28,13 @@
            por material e as reservas somam na UM do material (lote sem regra de conversão fica fora da soma e aparece
            marcado). Saldo negativo vira NEGATIVO (antes aparecia como ESGOTADO). Consumo maior que o saldo do lote só é
            registrado depois de confirmar o aviso, e fica marcado (AcimaDoSaldo = Sim).
+    1.7.1) OP impressa ("PDF OP Produção"): cada material sai uma única vez, só na máquina onde o roteiro o indica (antes
+           saía em todas as máquinas da mesma operação); sem máquina indicada, sai uma vez em "Materiais sem máquina
+           indicada no roteiro"; a primeira OP começa na primeira página (seção 10).
    ===================================================================== */
 (function () {
   'use strict';
-  var VERSAO = '1.6.1';
+  var VERSAO = '1.7.1';
 
   /* ---------------------------------------------------------------------
      0) UTILITÁRIOS
@@ -1552,8 +1555,146 @@
   })();
 
   /* ---------------------------------------------------------------------
-     10) OP IMPRESSA COM CÓDIGO DE BARRAS (da OP e de cada material)
+     10) OP IMPRESSA ("PDF OP Produção"): MATERIAIS NA MÁQUINA DO ROTEIRO E CÓDIGO DE BARRAS (da OP e de cada material)
+     1.7.1) Cada linha de "OP - Etapas" é uma máquina (recurso do roteiro), e cada material da OP sai UMA vez, só na
+     máquina onde o roteiro o indica. Antes a página comparava só a operação (Ordem): o material de uma máquina saía em
+     todas as máquinas da mesma operação, e o material sem operação saía em todas as etapas sem material.
+     A máquina do material vem, nesta ordem:
+       a) do recurso gravado na linha da OP (IdRecursoRoteiro; ou operação + equipamento);
+       b) do roteiro: Roteiro - Materiais (mesmo material na mesma operação) ou, para o PI, "PIs que entram nesta
+          operação" (PI sem máquina escolhida entra na primeira máquina da operação, como no apontamento);
+       c) da única máquina da operação.
+     Sem nenhuma delas o material sai uma vez no fim, em "Materiais sem máquina indicada no roteiro" (não é repetido
+     nem escondido). Continuam fora, como antes: as linhas de genealogia da OP de PA (os PIs da família) e a linha de
+     PI retirada do roteiro (RemovidoDoRoteiro). A primeira OP começa na primeira página (antes saía uma página só com
+     o cabeçalho do relatório) e a quantidade sai sem o ruído de ponto flutuante (0.7720959999999999 → 0.772096).
+     O resto da página (cabeçalho, documentos de controle, observações e assinaturas) é o mesmo do frontend.
      --------------------------------------------------------------------- */
+  function ordemDaLinha(x) { return txt(x && (x.Ordem || x.OrdemEtapa || x.Etapa)); }
+  function linhaDePI(m) { return String(m && m.TipoConsumo || '').toLowerCase().indexOf('pi intermedi') >= 0; }
+  function genealogiaDaFamilia(m) { return ordemDaLinha(m) === 'PI' && (/genealog/i.test(String(m.Processo || '')) || txt(m.OrigemDados) === 'ROTEIRO_ETAPA_PI'); }
+  /* máquinas da OP na ordem do roteiro: operação e, dentro dela, a sequência do recurso */
+  function maquinasImpressas(op) {
+    var k = txt(op && op.CodOP);
+    return A((D() || {}).op_etapas).filter(function (e) { return e && txt(e.CodOP) === k; })
+      .map(function (e, i) { return { e: e, i: i }; })
+      .sort(function (a, b) { return N(a.e.Ordem) - N(b.e.Ordem) || N(a.e.SequenciaRecurso) - N(b.e.SequenciaRecurso) || a.i - b.i; })
+      .map(function (x) { return x.e; });
+  }
+  /* { etapas: [materiais de cada máquina, na ordem de maquinasImpressas], sem: [materiais sem máquina] } */
+  function materiaisPorMaquina(op, ets) {
+    var d = D() || {}, cod = txt(op && op.CodOP), rot = txt(op && op.CodRoteiro), porId = Object.create(null), porOrdem = Object.create(null);
+    ets.forEach(function (e, i) {
+      var id = txt(e.IdRecursoRoteiro), o = txt(e.Ordem);
+      if (id && !(id in porId)) porId[id] = i;
+      (porOrdem[o] = porOrdem[o] || []).push(i);
+    });
+    /* linha com recurso (OP - Materiais, Roteiro - Materiais ou entrada de PI) → índice da máquina da OP (-1 = nenhuma) */
+    function maquinaDaLinha(x) {
+      var id = txt(x.IdRecursoRoteiro); if (id && (id in porId)) return porId[id];
+      var o = ordemDaLinha(x), eq = txt(x.CodEquipamento), l = porOrdem[o] || [];
+      if (o && eq) for (var j = 0; j < l.length; j++) if (txt(ets[l[j]].CodEquipamento) === eq) return l[j];
+      return -1;
+    }
+    var rotMat = rot ? A(d.roteiro_materiais).filter(function (x) { return x && txt(x.CodRoteiro) === rot; }) : [];
+    var rotPI = rot ? A(d.roteiro_pi_entradas).filter(function (x) { return x && txt(x.CodRoteiro) === rot; }) : [];
+    var r = { etapas: ets.map(function () { return []; }), sem: [] };
+    A(d.op_materiais).forEach(function (m) {
+      if (!m || txt(m.CodOP) !== cod || genealogiaDaFamilia(m) || m.RemovidoDoRoteiro === 'Sim') return;
+      var i = maquinaDaLinha(m), o = ordemDaLinha(m), codM = txt(m.CodigoMaterial || m.CodigoPI);
+      if (i < 0 && codM) {
+        var pi = linhaDePI(m), cand = [];
+        (pi ? rotPI : rotMat).forEach(function (x) {
+          var mesmo = pi ? ((txt(m.IdEntradaPI) && txt(x.IdEntradaPI) === txt(m.IdEntradaPI)) || txt(x.CodigoPI) === codM) : txt(x.CodigoMaterial || x.CodigoPI) === codM;
+          if (!mesmo || (porOrdem[o] && ordemDaLinha(x) !== o)) return;   /* a operação gravada na OP prevalece */
+          var k = maquinaDaLinha(x);
+          if (k < 0 && pi && !txt(x.IdRecursoRoteiro) && porOrdem[ordemDaLinha(x)]) k = porOrdem[ordemDaLinha(x)][0];
+          if (k >= 0 && cand.indexOf(k) < 0) cand.push(k);
+        });
+        if (cand.length === 1) i = cand[0];
+      }
+      if (i < 0 && porOrdem[o] && porOrdem[o].length === 1) i = porOrdem[o][0];
+      if (i >= 0) r.etapas[i].push(m); else r.sem.push(m);
+    });
+    return r;
+  }
+  window.mesOPMateriaisPorMaquina = function (codOP) {
+    var op = A((D() || {}).op).find(function (o) { return o && txt(o.CodOP) === txt(codOP); }); if (!op) return null;
+    var ets = maquinasImpressas(op), r = materiaisPorMaquina(op, ets), cods = function (l) { return l.map(function (m) { return txt(m.CodigoMaterial || m.CodigoPI); }); };
+    return { maquinas: ets.map(function (e, i) { return { Ordem: txt(e.Ordem), IdRecursoRoteiro: txt(e.IdRecursoRoteiro), Recurso: e.Recurso || e.Equipamento || '', materiais: cods(r.etapas[i]) }; }), semMaquina: cods(r.sem) };
+  };
+  function qtdSemRuido(v) {
+    var s = txt(v); if (!/^-?\d+\.\d{10,}$/.test(s)) return v;
+    var n = Number(s), q = Math.round(n * 1e9) / 1e9;
+    return (q === 0 && n !== 0) ? v : String(q);
+  }
+  function frontendDaOPImpressa() {
+    return typeof htmlEscape === 'function' && typeof opProductInfo === 'function' && typeof recursoNomeV32 === 'function' && typeof blankBox === 'function';
+  }
+  /* documentos de controle marcados na OP (Ordens de Produção > "Documentos de controle para impressão da OP"): mesma
+     consulta do frontend (GET /api/equipment/<código>/documents de cada equipamento das etapas), só quando há marcados */
+  function documentosMarcadosDaOP(op) {
+    var marc = A(op.DocumentosImpressao), cods = [], lst = [];
+    if (!marc.length) return lst;
+    maquinasImpressas(op).forEach(function (e) { var c = txt(e.CodEquipamento); if (c && cods.indexOf(c) < 0) cods.push(c); });
+    cods.forEach(function (c) {
+      try {
+        var x = new XMLHttpRequest(); x.open('GET', '/api/equipment/' + encodeURIComponent(c) + '/documents', false); x.send(null);
+        if (x.status >= 200 && x.status < 300 && x.responseText) A(JSON.parse(x.responseText)).forEach(function (dd) { if (dd && marc.indexOf(dd.id) >= 0) lst.push(Object.assign({}, dd, { equipment: c })); });
+      } catch (e) { }
+    });
+    return lst;
+  }
+  function paginaOPPorMaquina(op, first) {
+    var h = htmlEscape, cod = op.CodOP || '', ets = maquinasImpressas(op), dist = materiaisPorMaquina(op, ets), info = opProductInfo(op), docs = documentosMarcadosDaOP(op);
+    var cab = '<thead><tr><th>Código</th><th>Material / PI consumido</th><th>Qtd.</th><th>UM</th><th>Lote</th><th>Fornecedor</th><th>Consumo real</th><th>Perda</th></tr></thead>';
+    function linha(m) {   /* mesma linha do frontend (código, descrição, qtd., UM, lote, fornecedor e duas colunas para anotar) */
+      var c = m.CodigoMaterial || m.CodigoPI || '', p = A((D() || {}).estrutura).find(function (x) { return x && x['Código'] === c; });
+      return '<tr><td>' + h(c) + '</td><td>' + h(m.DescricaoMaterial || m.MaterialEntrada || (p && p['Descrição']) || '') + '</td><td>' + h(qtdSemRuido(m.QtdPlanejada || m.QtdBase || '')) + '</td><td>' +
+        h(m.UM || '') + '</td><td>' + h(m.Lote || m.IDLotePI || '') + '</td><td>' + h(m.NomeFornecedor || '') + '</td><td></td><td></td></tr>';
+    }
+    var etapas = ets.map(function (e, i) {
+      return '<section class="op-stage"><h2>' + h(e.Ordem || '') + ' · ' + h(e.Processo || 'Etapa') + '</h2><div class="op-summary-v395">' +
+        '<div><b>Recurso</b><span>' + h(e.Recurso || e.Equipamento || recursoNomeV32(e.CodEquipamento, e.Processo) || '-') + '</span></div>' +
+        '<div><b>Tempo</b><span>' + h(e.TempoPlanejado || e.TempoOperacaoMin || '') + ' min</span></div>' +
+        '<div><b>Pessoas</b><span>' + h(e.PessoasPlanejado || e.NPessoas || '') + '</span></div>' +
+        '<div><b>Produto gerado</b><span>' + h(e.ProdutoGerado || info.cod) + '</span></div></div>' +
+        '<table>' + cab + '<tbody>' + (dist.etapas[i].map(linha).join('') || '<tr><td colspan="8">Sem materiais indicados no roteiro para este recurso.</td></tr>') + '</tbody></table>' +
+        '<div class="annotation-grid">' + blankBox('Início') + blankBox('Fim') + blankBox('Operador') + blankBox('Quantidade produzida') + blankBox('Quantidade rejeitada') + blankBox('Conferência') + '</div>' +
+        '<div class="obs-big"><b>Observações da etapa:</b></div></section>';
+    }).join('');
+    var sem = '';
+    if (dist.sem.length) {
+      var grupos = [], porGrupo = Object.create(null);
+      dist.sem.forEach(function (m) {
+        var o = ordemDaLinha(m), et = ets.find(function (e) { return txt(e.Ordem) === o; });
+        var g = et ? 'Operação ' + o + ' · ' + (et.Processo || '') + ' (' + ets.filter(function (e) { return txt(e.Ordem) === o; }).length + ' máquinas)' : 'Operação que não está nas etapas desta OP';
+        if (!(g in porGrupo)) { porGrupo[g] = []; grupos.push(g); }
+        porGrupo[g].push(m);
+      });
+      sem = '<section class="op-stage mes-op-sem-maquina"><h2>Materiais sem máquina indicada no roteiro</h2>' +
+        '<p class="small" style="margin:2px 0 5px;color:#4b6475">O roteiro não indica em qual máquina estes materiais entram. Cada um aparece só aqui (não se repete nas etapas); indique a máquina em Engenharia &gt; Roteiro para que saia na etapa certa.</p>' +
+        '<table>' + cab + '<tbody>' + grupos.map(function (g) { return '<tr><td colspan="8"><b>' + h(g) + '</b></td></tr>' + porGrupo[g].map(linha).join(''); }).join('') + '</tbody></table></section>';
+    }
+    var dh = docs.length ? '<section class="op-stage"><h2>Documentos de controle vinculados</h2><table><thead><tr><th>Equipamento</th><th>Documento</th><th>Tipo</th><th>Revisão</th></tr></thead><tbody>' +
+      docs.map(function (x) { return '<tr><td>' + h(x.equipment) + '</td><td>' + h(x.original_name) + '</td><td>' + h(x.document_type || '') + '</td><td>' + h(x.revision || '') + '</td></tr>'; }).join('') +
+      '</tbody></table><p class="small">Os arquivos marcados fazem parte do pacote documental desta OP e devem ser impressos junto ao documento operacional.</p></section>' : '';
+    /* a folha de estilo do relatório quebra a página antes de toda OP; a primeira não quebra (o cabeçalho vem antes dela) */
+    return '<div class="op-card' + (first ? '" style="break-before:auto;page-break-before:auto">' : ' break">') + '<h2>ORDEM DE PRODUÇÃO</h2><table class="op-head">' +
+      '<tr><th>OP</th><td>' + h(cod) + '</td><th>Status</th><td>' + h(op.Status || '') + '</td></tr>' +
+      '<tr><th>Produto</th><td colspan="3"><b>' + h(info.cod) + '</b> — ' + h(info.desc) + '</td></tr>' +
+      '<tr><th>Roteiro</th><td>' + h(op.CodRoteiro || '') + '</td><th>Quantidade</th><td>' + h(op.QtdPlanejada || '') + ' ' + h(op.UM || '') + '</td></tr></table>' +
+      etapas + sem + dh + '<div class="obs-big"><b>Observações gerais:</b></div><div class="sign"><div class="line">Produção</div><div class="line">Qualidade</div><div class="line">PCP / Engenharia</div></div></div>';
+  }
+  (function () {
+    var basePag = window.opProductionPage;
+    if (typeof basePag === 'function' && frontendDaOPImpressa()) {
+      window.opProductionPage = function (op, first) {
+        try { if (op && op.CodOP) return paginaOPPorMaquina(op, !!first); } catch (e) { console.warn('MES LION 1.7.1: OP impressa por máquina', e); }
+        return basePag.apply(this, arguments);
+      };
+    }
+  })();
   (function () {
     var pagAnt = window.opProductionPage;
     if (typeof pagAnt === 'function') {

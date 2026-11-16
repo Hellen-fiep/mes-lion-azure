@@ -18,7 +18,10 @@ Teste no navegador da versão JSON 1.4.0 (server/adaptador_apontamento_pi.js) e 
     rastreio, conferência); exclusão de produção com etiqueta consumida bloqueada;
   - 1.6.1: OP encerrada só com o consumo real no custo e na ACV (aviso no encerramento), consumo acima do saldo do lote
     com confirmação e marca, lote NEGATIVO, saldo do lote na lista de lotes, conversão de UM no estoque e MRP/reservas
-    descontando o já consumido.
+    descontando o já consumido;
+  - 1.7.1 (server/adaptador_codigos_estoque.js): OP impressa ("PDF OP Produção") com cada material uma única vez, só na
+    máquina indicada no roteiro (PIs do fluxo na primeira máquina da operação), "Materiais sem máquina indicada no
+    roteiro" quando falta a indicação, códigos de barras mantidos e a primeira OP na primeira página.
 
 Uso: python teste_apontamento_pi_json.py <url_base>
 """
@@ -191,6 +194,64 @@ async def main():
         ok(sync['r07'] == ['PI0005', 'PI0006'], 'OP do jelly roll recebe os dois eletrodos cortados (PI0005 e PI0006)', sync['r07'])
         gen = [p for p in sync['pa'] if p[1] == 'PI']
         ok(len(gen) == 7 and all(p[2] == 'Sim' for p in gen) and sync['ativas'] == ['PI0007'], 'OP de PA: genealogia vira só genealogia; o insumo ativo é o PI0007 da etapa 80', sync)
+
+        # ------------------------------------------------------------------ 1.7.1: OP impressa — cada material só na máquina indicada no roteiro
+        # (página chamada direto: o botão "PDF OP Produção" também recalcula as fórmulas antes de imprimir, o que mudaria
+        #  as quantidades conferidas mais abaixo neste teste)
+        ler_op = """([cod, first]) => { const op = data.op.find(o => o.CodOP === cod), doc = new DOMParser().parseFromString(opProductionPage(op, first), 'text/html');
+            const card = doc.querySelector('.op-card'), secs = [...doc.querySelectorAll('section.op-stage')].filter(s => /Material \\/ PI consumido/.test((s.querySelector('thead') || {}).textContent || ''));
+            const cods = s => [...s.querySelectorAll('tbody tr')].map(tr => tr.cells[0]).filter(td => td && !td.hasAttribute('colspan')).map(td => td.firstChild.textContent.trim());
+            return { card: [card.className.trim(), card.getAttribute('style') || ''], barrasOP: doc.querySelectorAll('.mbc-op-print-code svg').length, barrasMat: doc.querySelectorAll('section.op-stage tbody td svg').length,
+              maq: secs.filter(s => s.querySelector('.op-summary-v395')).map(s => [s.querySelector('.op-summary-v395 span').textContent.trim(), cods(s).sort(), (s.querySelector('tbody td[colspan="8"]') || {}).textContent || '']),
+              sem: secs.filter(s => !s.querySelector('.op-summary-v395')).map(s => [s.querySelector('h2').textContent.trim(), cods(s).sort(), [...s.querySelectorAll('tbody td[colspan] b')].map(b => b.textContent.trim())]) }; }"""
+        pg = {c: await ev(ler_op, [c, True]) for c in (OPPA, OP07, OP01, OP03)}
+        vazio = 'Sem materiais indicados no roteiro para este recurso.'
+        ok([m[:2] for m in pg[OPPA]['maq']] == [['Injetora de eletrólito', ['MP0016', 'MP0017', 'MP0018', 'PI0007']], ['Solda Tabs Prismática', []], ['Arbin', []], ['Estufa Aging', []]]
+           and all(m[2] == vazio for m in pg[OPPA]['maq'][1:]) and not pg[OPPA]['sem'],
+           '1.7.1: OP de PA impressa — MP0016/17/18 e o PI0007 só na Injetora (onde o roteiro indica); Solda Tabs, Arbin e Estufa Aging sem materiais', pg[OPPA]['maq'])
+        ok([m[:2] for m in pg[OP07]['maq']] == [['Stacking', ['MP0015', 'PI0005', 'PI0006']], ['Solda Tabs Prismática', ['MP0013', 'MP0014']]],
+           '1.7.1: OP -07 impressa — Stacking: MP0015 e os PIs PI0005/PI0006 (primeira máquina da operação); Solda Tabs: MP0013 e MP0014', pg[OP07]['maq'])
+        ok([m[:2] for m in pg[OP01]['maq']] == [['Misturador', ['MP0001', 'MP0003', 'MP0007', 'MP0009']], ['Filtro', []], ['Estufa à Vácuo', []]]
+           and [m[:2] for m in pg[OP03]['maq']] == [['Roll to roll', ['MP0013', 'PI0001']], ['Estufa à Vácuo', []], ['Calandra', []]],
+           '1.7.1: OP -01 (Misturador com os 4 materiais; Filtro e Estufa sem) e OP -03 (Roll to roll com MP0013 e o slurry PI0001)', (pg[OP01]['maq'], pg[OP03]['maq']))
+        ok(pg[OPPA]['card'][0] == 'op-card' and 'break-before:auto' in pg[OPPA]['card'][1] and (await ev(ler_op, [OP07, False]))['card'][0] == 'op-card break'
+           and pg[OPPA]['barrasOP'] == 1 and pg[OPPA]['barrasMat'] == 3 and pg[OP07]['barrasMat'] == 3,
+           '1.7.1: a primeira OP não quebra a página (as seguintes sim) e os códigos de barras da OP e dos materiais continuam', (pg[OPPA]['card'], pg[OPPA]['barrasMat'], pg[OP07]['barrasMat']))
+        todas = await ev("""() => data.op.map(op => { const doc = new DOMParser().parseFromString(opProductionPage(op, true), 'text/html');
+            const secs = [...doc.querySelectorAll('section.op-stage')].filter(s => /Material \\/ PI consumido/.test((s.querySelector('thead') || {}).textContent || ''));
+            const impressos = secs.flatMap(s => [...s.querySelectorAll('tbody tr')].map(tr => tr.cells[0]).filter(td => td && !td.hasAttribute('colspan')).map(td => td.firstChild.textContent.trim())).sort();
+            const esperados = data.op_materiais.filter(m => m.CodOP === op.CodOP && !(String(m.Ordem || m.OrdemEtapa) === 'PI' && /genealog/i.test(m.Processo || '')) && m.RemovidoDoRoteiro !== 'Sim')
+              .map(m => m.CodigoMaterial || m.CodigoPI).sort();
+            return [op.CodOP, JSON.stringify(impressos) === JSON.stringify(esperados), secs.filter(s => s.querySelector('.op-summary-v395')).length === data.op_etapas.filter(e => e.CodOP === op.CodOP).length, impressos.length]; })""")
+        ok(len(todas) == 16 and all(t[1] and t[2] for t in todas) and sum(t[3] for t in todas) == 43,
+           '1.7.1: nas 16 OPs cada material da OP sai uma única vez (43 linhas: 36 do roteiro + 7 PIs do fluxo; genealogia fora) e há uma seção por máquina', [t for t in todas if not (t[1] and t[2])] or sum(t[3] for t in todas))
+        sint = await ev(f"""() => {{
+            const ent = mesApontamentoPI14.entradasPI('{ROT}').find(x => x.OrdemEtapa === '70' && x.CodigoPI === 'PI0005') || {{}};
+            const b = {{ CodOP: '{OP07}', CodRoteiro: '{ROT}', UM: 'm', QtdPlanejada: '1', TipoConsumo: 'Material', Processo: 'Montagem Célula' }};
+            const extras = [Object.assign({{}}, b, {{ Ordem: '70', OrdemEtapa: '70', CodEquipamento: '12', CodigoMaterial: 'MPX-EQ' }}),
+              Object.assign({{}}, b, {{ Ordem: '70', OrdemEtapa: '70', CodigoMaterial: 'MP0015' }}),
+              Object.assign({{}}, b, {{ Ordem: '70', OrdemEtapa: '70', CodigoMaterial: 'MPX-SEM' }}),
+              Object.assign({{}}, b, {{ Ordem: 'FORM', CodigoMaterial: 'MP0014' }}),
+              Object.assign({{}}, b, {{ CodigoMaterial: 'MPX-NADA' }}),
+              Object.assign({{}}, b, {{ Ordem: '70', OrdemEtapa: '70', CodigoMaterial: 'PI0005', TipoConsumo: 'PI intermediário', IdEntradaPI: ent.IdEntradaPI }}),
+              Object.assign({{}}, b, {{ Ordem: '70', OrdemEtapa: '70', CodigoMaterial: 'MP0013', IdRecursoRoteiro: 'RR-QUE-NAO-EXISTE', CodEquipamento: '13' }})];
+            data.op_materiais.push(...extras);
+            try {{ const r = mesOPMateriaisPorMaquina('{OP07}'); return [r.maquinas.map(m => [m.Recurso, m.materiais.slice().sort()]), r.semMaquina.slice().sort(), ({ler_op})(['{OP07}', true]).sem]; }}
+            finally {{ extras.forEach(x => {{ const i = data.op_materiais.indexOf(x); if (i >= 0) data.op_materiais.splice(i, 1); }}); }}
+        }}""")
+        ok(sint[0] == [['Stacking', ['MP0013', 'MP0015', 'MP0015', 'PI0005', 'PI0005', 'PI0006']], ['Solda Tabs Prismática', ['MP0013', 'MP0014', 'MP0014', 'MPX-EQ']]]
+           and sint[1] == ['MPX-NADA', 'MPX-SEM']
+           and sint[2] == [['Materiais sem máquina indicada no roteiro', ['MPX-NADA', 'MPX-SEM'], ['Operação 70 · Montagem Célula (2 máquinas)', 'Operação que não está nas etapas desta OP']]],
+           '1.7.1: linha sem a máquina gravada — operação + equipamento, Roteiro - Materiais, entrada de PI (primeira máquina) e recurso antigo pelo equipamento; '
+           'sem indicação no roteiro, sai uma vez em "Materiais sem máquina indicada no roteiro"', sint)
+        ok(await ev(f"data.op_materiais.filter(m => m.CodOP === '{OP07}').length") == 5, '1.7.1: as linhas de teste saíram dos dados', '')
+        async with page.expect_popup() as pinfo:
+            await ev(f"reportShell('Teste 1.7.1', opProductionPage(data.op.find(o => o.CodOP === '{OPPA}'), true) + opProductionPage(data.op.find(o => o.CodOP === '{OP07}'), false))")
+        pop = await pinfo.value
+        await pop.wait_for_load_state('load')
+        quebras = await pop.evaluate("[...document.querySelectorAll('.op-card')].map(c => getComputedStyle(c).breakBefore)")
+        await pop.close()
+        ok(quebras == ['auto', 'page'], '1.7.1: na janela de impressão a primeira OP fica na primeira página (sem página só com o cabeçalho) e a segunda começa em página nova', quebras)
         # cópia do roteiro leva o fluxo
         dialogos.clear()
         await ev("copiarRoteiroV386()")
