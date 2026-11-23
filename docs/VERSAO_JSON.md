@@ -443,8 +443,8 @@ Os dados da 1.7.0 são lidos sem conversão; a mudança é só na montagem da p�
     Sem nenhuma: seção "Materiais sem máquina indicada no roteiro", agrupada pela operação. Fora da impressão, como
     antes: genealogia da OP de PA (`Ordem` "PI" + "Integração / genealogia") e linha `RemovidoDoRoteiro`. A primeira
     OP leva `break-before:auto` (a folha do relatório quebrava a página antes de toda `.op-card`, e a primeira não era
-    `:first-child` por causa do cabeçalho: saía uma página só com o cabeçalho). Quantidade com mais de 9 casas é
-    arredondada a 9 (ruído de ponto flutuante). `window.mesOPMateriaisPorMaquina(codOP)` devolve a distribuição
+    `:first-child` por causa do cabeçalho: saía uma página só com o cabeçalho). Quantidade com 8 casas ou mais sai
+    com 7 algarismos significativos na impressão (1.7.2; na 1.7.1, 9 casas), sem mudar o dado gravado. `window.mesOPMateriaisPorMaquina(codOP)` devolve a distribuição
     (máquinas com os códigos e os sem máquina) para os testes.
     Observação (comportamento do frontend, anterior à 1.7.1 e não alterado): `reportOP`, `reportPicking`,
     `reportCustosOP` e `exportSelectedExcel` chamam `v4050RefreshCalculatedData()` + `saveLocal()` antes de gerar o

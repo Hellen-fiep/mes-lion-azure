@@ -1571,7 +1571,8 @@
      Sem nenhuma delas o material sai uma vez no fim, em "Materiais sem máquina indicada no roteiro" (não é repetido
      nem escondido). Continuam fora, como antes: as linhas de genealogia da OP de PA (os PIs da família) e a linha de
      PI retirada do roteiro (RemovidoDoRoteiro). A primeira OP começa na primeira página (antes saía uma página só com
-     o cabeçalho do relatório) e a quantidade sai sem o ruído de ponto flutuante (0.7720959999999999 → 0.772096).
+     o cabeçalho do relatório) e a quantidade sai sem o ruído de ponto flutuante (0.7720959999999999 → 0.772096; 1.7.2: 7
+     algarismos significativos, 0.9280000044543999 → 0.928).
      1.7.2) A página não depende mais de funções do frontend (cada uma tem substituto aqui) e nunca volta ao layout
      antigo: se algo falhar, a OP sai com o aviso do erro e sem lista de materiais. O rodapé de cada OP mostra a versão
      do MES que a imprimiu ("MES LION JSON 1.7.2 · materiais na máquina indicada no roteiro").
@@ -1648,10 +1649,12 @@
     var ets = maquinasImpressas(op), r = materiaisPorMaquina(op, ets), cods = function (l) { return l.map(function (m) { return txt(m.CodigoMaterial || m.CodigoPI); }); };
     return { maquinas: ets.map(function (e, i) { return { Ordem: txt(e.Ordem), IdRecursoRoteiro: txt(e.IdRecursoRoteiro), Recurso: e.Recurso || e.Equipamento || '', materiais: cods(r.etapas[i]), notas: r.notas[i] }; }), semMaquina: cods(r.sem) };
   };
+  /* quantidade com muitas casas (ruído de ponto flutuante ou do arredondamento dos teores): 7 algarismos significativos
+     (0.7720959999999999 → 0.772096; 0.9280000044543999 → 0.928); só na impressão — o dado gravado não muda */
   function qtdSemRuido(v) {
-    var s = txt(v); if (!/^-?\d+\.\d{10,}$/.test(s)) return v;
-    var n = Number(s), q = Math.round(n * 1e9) / 1e9;
-    return (q === 0 && n !== 0) ? v : String(q);
+    var s = txt(v); if (!/^-?\d+\.\d{8,}$/.test(s)) return v;
+    var n = Number(s); if (!isFinite(n) || Math.abs(n) < 0.001) return v;
+    return String(Number(n.toPrecision(7)));
   }
   /* substitutos das funções do frontend usadas na página (o frontend tem todas; se alguma faltar, a página sai igual) */
   function escOP(v) { if (typeof htmlEscape === 'function') return htmlEscape(v); return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
