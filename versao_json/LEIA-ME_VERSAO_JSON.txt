@@ -15,16 +15,18 @@ COMO ABRIR
 4. Mantenha a janela preta aberta enquanto usa o MES. Para encerrar, feche a janela.
 
 ATUALIZAR UMA INSTALAÇÃO QUE JÁ ESTÁ EM USO (SEM PERDER OS DADOS)
-1. Feche a janela do servidor do MES.
+1. Feche a janela do servidor do MES (a janela preta). Enquanto ela estiver aberta, o MES continua com o código
+   antigo, mesmo depois de copiar os arquivos novos.
 2. Copie a pasta server deste pacote por cima da pasta server da instalação atual (substitua os arquivos; a pasta
    tem o servidor MES_LION_SERVER_JSON.ps1 e os arquivos adaptador_frontend.js, adaptador_passaporte.js,
    adaptador_codigos_estoque.js, adaptador_estoque_ajustes.js, adaptador_apontamento_pi.js,
    adaptador_relatorios.js, adaptador_recursos_importacao.js, adaptador_helpdesk_assistente.js,
-   adaptador_paradas_testes.js e adaptador_paineis.js).
+   adaptador_paradas_testes.js, adaptador_paineis.js e adaptador_integridade.js).
    NÃO copie a pasta Dados: é nela que estão os seus dados, usuários e histórico. Não extraia o .zip inteiro
    por cima da pasta atual.
-3. Abra de novo com INICIAR_MES.bat. No modo rede basta atualizar o computador que abre o servidor; nos outros,
-   é só recarregar a página no navegador (F5).
+3. Abra de novo com INICIAR_MES.bat da mesma pasta. No modo rede basta atualizar o computador que abre o servidor;
+   nos outros, é só recarregar a página no navegador (F5).
+4. Confira a versão no fim do menu ("Servidor JSON 1.7.2") ou no rodapé do "PDF OP Produção".
 
 TRAZER OS DADOS DO MES POSTGRESQL, COM O HISTÓRICO
 No computador onde o MES PostgreSQL está instalado:
@@ -530,6 +532,38 @@ OP IMPRESSA: MATERIAIS NA MÁQUINA DO ROTEIRO (VERSÃO 1.7.1)
   marcadas, cada uma continua começando em página nova. A quantidade sai sem o ruído de ponto flutuante
   (0.7720959999999999 vira 0.772096). Os PIs da família listados na OP de PA só como genealogia continuam fora da
   impressão, como antes.
+- 1.7.2: a página não depende mais de funções do frontend e nunca volta ao layout antigo (se algo falhar, a OP sai
+  com o aviso do erro e sem lista de materiais); o rodapé de cada OP mostra a versão do MES que a imprimiu; material
+  da formulação que não consta no roteiro (ex.: o binder MP0010 da FM0003 na OP de slurry de ânodo) sai na máquina
+  dos demais materiais da formulação, com uma nota.
+
+AUDITORIA E INTEGRIDADE DOS DADOS (VERSÃO 1.7.2)
+- Ver, imprimir e exportar não mudam mais nada nos dados. Antes, "PDF OP Produção", "Picking List PDF", "Custos da
+  OP" e "Exportar Excel" recalculavam e gravavam as fórmulas de todas as OPs de slurry (inclusive as encerradas), e
+  abrir uma OP em Ordens de Produção recalculava a fórmula dela.
+- Fórmula congelada: a OP guarda o retrato da formulação quando é gerada, e mudar a formulação depois não muda as
+  OPs já geradas. OP encerrada nunca é recalculada. Os teores de sólidos e de solvente que o MES deduzia pelas
+  partes não são mais gravados no cadastro da formulação (os já gravados iguais à dedução foram apagados; o cálculo
+  continua o mesmo).
+- Regra da formulação (a mesma que a tela da OP já indicava: "Quantidade / massa total planejada desta OP"): a soma
+  dos materiais da formulação é a massa total da OP (sólidos + solvente). OP aberta gerada com a regra antiga (o
+  solvente somado por cima, 150% da massa da OP) é recalculada uma vez ao entrar, com o antes e o depois
+  registrados. Ex.: OP de slurry de cátodo de 0,8956 kg: NMP 0,2985 kg, LFP 0,5612 kg, condutor e binder 0,0179 kg
+  cada. O binder MP0010 (1,5% dos sólidos na FM0003) passa a constar na OP de slurry de ânodo.
+- Massa de deposição das etapas de coating: o coating de cátodo mostrava a massa do slurry de ânodo; agora cada
+  coating usa o slurry do mesmo eletrodo.
+- Custo projetado de OP encerrada não muda mais quando entra o mesmo material com outro preço (o custo efetivo, do
+  consumo apontado, continua sendo atualizado).
+- Passaporte: os "Textos de validação" genéricos (due diligence, conteúdo reciclado e renovável, declaração UE e
+  segurança) eram preenchidos sozinhos nos passaportes antigos. Não são mais, e os já gravados iguais ao texto
+  genérico foram apagados. Preencha esses campos com as informações reais.
+- Autoria: ações feitas por outro usuário (gerar OP, encerrar, reabrir, projeto) ficavam gravadas como "admin";
+  agora ficam com o usuário logado. O cabeçalho dos relatórios mostra o usuário logado e a versão do MES.
+- Registros de teste e de demonstração do frontend nunca ficam na base (se aparecerem, saem na entrada).
+- O menu mostra a versão do servidor. Se a pasta server for atualizada com a janela do servidor aberta, aparece um
+  aviso amarelo: feche a janela preta do servidor e abra o MES de novo (a janela antiga continua com o código antigo).
+- Tudo o que foi corrigido na entrada fica registrado nos dados (meta.mes172...): formulações recalculadas, teores
+  apagados, textos do passaporte apagados e registros de teste removidos.
 
 ONDE FICAM OS DADOS (pasta Dados)
 - MES_LION_DATA.json ............. todos os dados do MES
@@ -574,6 +608,13 @@ O QUE MUDOU EM RELAÇÃO AO MES POSTGRESQL
 - Os LEIA-ME das versões anteriores estão na pasta LEIA-ME_versoes_anteriores.
 
 VERSÕES DO SERVIDOR JSON
+- 1.7.2 (23/11/2026): auditoria de integridade dos dados — ver, imprimir e exportar não gravam nada; fórmula
+  congelada pelo retrato da OP e OP encerrada nunca recalculada; regra da formulação (massa total) aplicada uma vez
+  nas OPs abertas antigas; massa de deposição pelo slurry do mesmo eletrodo; custo projetado de OP encerrada
+  congelado; passaporte sem textos genéricos; autoria com o usuário logado; aviso de servidor desatualizado; OP
+  impressa à prova de falha e com a versão no rodapé. Arquivo novo: server\adaptador_integridade.js; alterados:
+  server\adaptador_codigos_estoque.js e server\MES_LION_SERVER_JSON.ps1. Copie a pasta server inteira com a janela
+  do servidor FECHADA.
 - 1.7.1 (16/11/2026): OP impressa ("PDF OP Produção") com cada material uma única vez, só na máquina onde o roteiro
   o indica (antes se repetia em todas as máquinas da operação); "Materiais sem máquina indicada no roteiro" quando
   falta a indicação; a primeira OP começa na primeira página. Arquivos alterados: server\adaptador_codigos_estoque.js

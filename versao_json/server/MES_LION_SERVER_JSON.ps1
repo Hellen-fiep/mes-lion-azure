@@ -28,7 +28,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $VersaoMes = 'MES LION 1.0 JSON'
-$VersaoServidor = '1.7.1 (2026-11-16)'
+$VersaoServidor = '1.7.2 (2026-11-23)'
 $EhPS7 = $PSVersionTable.PSVersion.Major -ge 6
 $EhWindows = ($env:OS -eq 'Windows_NT')
 $Utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -992,6 +992,10 @@ function Ler-Multipart($req) {
 #   adaptador_paineis.js    - menu Paineis: tabelas dos modulos ligadas pelas dimensoes, regra de calculo (formulas
 #                             conferidas, sem somar unidades diferentes), indicadores oficiais (so o administrador) e
 #                             pessoais com versao, paineis por area com editor de arrastar, filtro cruzado, Excel e TV
+#   adaptador_integridade.js - 1.7.2 (auditoria): ver/imprimir/exportar nao recalcula nem grava; formula congelada
+#                             (retrato da OP; OP encerrada nunca recalculada); massa de deposicao com o slurry do mesmo
+#                             eletrodo; custo projetado de OP encerrada congelado; passaporte sem textos genericos; autoria
+#                             com o usuario logado; registros de teste do frontend fora da base; aviso de servidor antigo
 # =====================================================================================================
 $ArquivosAdaptador = @(
     @{ Arquivo = 'adaptador_frontend.js'; Id = 'mes-adaptador-json' },
@@ -1003,9 +1007,32 @@ $ArquivosAdaptador = @(
     @{ Arquivo = 'adaptador_recursos_importacao.js'; Id = 'mes-adaptador-recursos-importacao' },
     @{ Arquivo = 'adaptador_helpdesk_assistente.js'; Id = 'mes-adaptador-helpdesk-assistente' },
     @{ Arquivo = 'adaptador_paradas_testes.js'; Id = 'mes-adaptador-paradas-testes' },
-    @{ Arquivo = 'adaptador_paineis.js'; Id = 'mes-adaptador-paineis' }
+    @{ Arquivo = 'adaptador_paineis.js'; Id = 'mes-adaptador-paineis' },
+    @{ Arquivo = 'adaptador_integridade.js'; Id = 'mes-adaptador-integridade' }
 )
 $script:AdaptadorHtml = ''
+# arquivos da pasta server quando o servidor abriu: se mudarem (atualizacao copiada com a janela aberta), /api/info
+# avisa a tela de que esta janela ainda roda o codigo anterior
+$script:AssinaturaServidor = $null
+function Assinatura-Servidor {
+    $m = @{}
+    foreach ($f in [System.IO.Directory]::GetFiles($PSScriptRoot)) {
+        $n = [System.IO.Path]::GetFileName($f)
+        if ($n -notmatch '\.(ps1|js)$') { continue }
+        $fi = New-Object System.IO.FileInfo($f)
+        $m[$n] = ([string]$fi.Length) + '|' + ([string]$fi.LastWriteTimeUtc.Ticks)
+    }
+    return $m
+}
+function Arquivos-Servidor-Alterados {
+    $lst = New-Object System.Collections.ArrayList
+    if ($null -eq $script:AssinaturaServidor) { return , ([string[]]@()) }
+    $atual = Assinatura-Servidor
+    foreach ($k in $atual.Keys) { if (-not $script:AssinaturaServidor.ContainsKey($k) -or $script:AssinaturaServidor[$k] -ne $atual[$k]) { [void]$lst.Add([string]$k) } }
+    foreach ($k in $script:AssinaturaServidor.Keys) { if (-not $atual.ContainsKey($k)) { [void]$lst.Add([string]$k) } }
+    if ($lst.Count -eq 0) { return , ([string[]]@()) }
+    return , ([string[]]@($lst.ToArray() | Sort-Object))
+}
 function Carregar-Adaptador {
     $tags = New-Object System.Text.StringBuilder
     foreach ($a in $ArquivosAdaptador) {
@@ -1453,6 +1480,9 @@ function Rotear($req) {
         $fi = New-Object System.IO.FileInfo($ArqEstado)
         $o = Novo-Objeto
         $o['app'] = 'MES LION'; $o['versao'] = $VersaoMes; $o['servidorVersao'] = $VersaoServidor
+        $altLista = New-Object System.Collections.ArrayList
+        foreach ($nomeAlt in (Arquivos-Servidor-Alterados)) { if (-not [string]::IsNullOrEmpty([string]$nomeAlt)) { [void]$altLista.Add([string]$nomeAlt) } }
+        $o['arquivosServidorAlterados'] = [string[]]$altLista.ToArray()
         $o['plataforma'] = 'PowerShell ' + $PSVersionTable.PSVersion.ToString() + ' + arquivos JSON'
         $o['ambiente'] = 'Servidor local'; $o['servidor'] = [Environment]::MachineName
         $banco = Novo-Objeto; $banco['provedor'] = 'JSON'; $banco['descricao'] = 'Arquivos JSON em ' + $Dados; $o['banco'] = $banco
@@ -1647,6 +1677,7 @@ $script:IniciadoEm = Agora
 Write-Host ''
 Write-Host '================================================' -ForegroundColor Green
 Write-Host " $VersaoMes - sem PostgreSQL (dados em arquivos JSON)" -ForegroundColor Green
+Write-Host " Servidor $VersaoServidor" -ForegroundColor Green
 Write-Host '================================================' -ForegroundColor Green
 try {
     Garantir-Pastas
@@ -1675,6 +1706,7 @@ if ($Dados -match '\\OneDrive') {
 }
 try {
     Carregar-Adaptador
+    $script:AssinaturaServidor = Assinatura-Servidor
 } catch {
     Write-Host ''
     Write-Host ('ERRO: ' + $_.Exception.Message) -ForegroundColor Red

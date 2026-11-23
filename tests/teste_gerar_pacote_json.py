@@ -37,7 +37,7 @@ ok(all(n.startswith(pasta + '/') for n in nomes), 'tudo dentro da pasta do MES n
 for obrig in ['INICIAR_MES.bat', 'index.html', 'js/app.js', 'js/mes_capacidade_carga_v1.js', 'server/MES_LION_SERVER_JSON.ps1', 'server/adaptador_frontend.js',
               'server/adaptador_passaporte.js', 'server/adaptador_codigos_estoque.js', 'server/adaptador_estoque_ajustes.js', 'server/adaptador_apontamento_pi.js',
               'server/adaptador_relatorios.js', 'server/adaptador_recursos_importacao.js', 'server/adaptador_helpdesk_assistente.js', 'server/adaptador_paradas_testes.js',
-              'server/adaptador_paineis.js', 'Dados/MES_LION_DATA.json', 'Dados/usuarios.json', 'Dados/auditoria.jsonl']:
+              'server/adaptador_paineis.js', 'server/adaptador_integridade.js', 'Dados/MES_LION_DATA.json', 'Dados/usuarios.json', 'Dados/auditoria.jsonl']:
     ok(f'{pasta}/{obrig}' in nomes, f'pacote contém {obrig}', '')
 ok(not any('/Dados/backups/' in n or '/Dados/logs/' in n or n.endswith('.tmp') or n.endswith('servidor_em_execucao.json') for n in nomes),
    'sem backups, logs, temporários e trava do servidor', [n for n in nomes if 'backups' in n or 'logs' in n][:5])

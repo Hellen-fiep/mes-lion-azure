@@ -31,10 +31,12 @@
     1.7.1) OP impressa ("PDF OP Produção"): cada material sai uma única vez, só na máquina onde o roteiro o indica (antes
            saía em todas as máquinas da mesma operação); sem máquina indicada, sai uma vez em "Materiais sem máquina
            indicada no roteiro"; a primeira OP começa na primeira página (seção 10).
+    1.7.2) OP impressa sem depender de funções do frontend e sem nunca voltar ao layout antigo; material da formulação
+           fora do roteiro sai na máquina dos demais materiais da formulação, com nota; versão no rodapé (seção 10).
    ===================================================================== */
 (function () {
   'use strict';
-  var VERSAO = '1.7.1';
+  var VERSAO = '1.7.2';
 
   /* ---------------------------------------------------------------------
      0) UTILITÁRIOS
@@ -1563,16 +1565,27 @@
        a) do recurso gravado na linha da OP (IdRecursoRoteiro; ou operação + equipamento);
        b) do roteiro: Roteiro - Materiais (mesmo material na mesma operação) ou, para o PI, "PIs que entram nesta
           operação" (PI sem máquina escolhida entra na primeira máquina da operação, como no apontamento);
-       c) da única máquina da operação.
+       c) da única máquina da operação;
+       d) (1.7.2) material da formulação que não consta no roteiro (ex.: o binder MP0010 da FM0003 na OP do slurry de
+          ânodo): a máquina onde estão os demais materiais da mesma formulação nesta OP, com uma nota dizendo isso.
      Sem nenhuma delas o material sai uma vez no fim, em "Materiais sem máquina indicada no roteiro" (não é repetido
      nem escondido). Continuam fora, como antes: as linhas de genealogia da OP de PA (os PIs da família) e a linha de
      PI retirada do roteiro (RemovidoDoRoteiro). A primeira OP começa na primeira página (antes saía uma página só com
      o cabeçalho do relatório) e a quantidade sai sem o ruído de ponto flutuante (0.7720959999999999 → 0.772096).
+     1.7.2) A página não depende mais de funções do frontend (cada uma tem substituto aqui) e nunca volta ao layout
+     antigo: se algo falhar, a OP sai com o aviso do erro e sem lista de materiais. O rodapé de cada OP mostra a versão
+     do MES que a imprimiu ("MES LION JSON 1.7.2 · materiais na máquina indicada no roteiro").
      O resto da página (cabeçalho, documentos de controle, observações e assinaturas) é o mesmo do frontend.
      --------------------------------------------------------------------- */
+  var VERSAO_OP_IMPRESSA = '1.7.2';
   function ordemDaLinha(x) { return txt(x && (x.Ordem || x.OrdemEtapa || x.Etapa)); }
   function linhaDePI(m) { return String(m && m.TipoConsumo || '').toLowerCase().indexOf('pi intermedi') >= 0; }
   function genealogiaDaFamilia(m) { return ordemDaLinha(m) === 'PI' && (/genealog/i.test(String(m.Processo || '')) || txt(m.OrigemDados) === 'ROTEIRO_ETAPA_PI'); }
+  function grupoDaFormula(m) {   /* linha criada pela formulação da OP: "FM0003|ANODO"; '' nas demais */
+    if (!m || !txt(m.CodFormula) || linhaDePI(m)) return '';
+    if (!(txt(m.GrupoFormula) || txt(m.OrigemQuantidade) === 'FORMULA_OP' || /formula/i.test(String(m.OrigemDados || '')))) return '';
+    return txt(m.CodFormula) + '|' + txt(m.GrupoFormula).toUpperCase();
+  }
   /* máquinas da OP na ordem do roteiro: operação e, dentro dela, a sequência do recurso */
   function maquinasImpressas(op) {
     var k = txt(op && op.CodOP);
@@ -1581,7 +1594,7 @@
       .sort(function (a, b) { return N(a.e.Ordem) - N(b.e.Ordem) || N(a.e.SequenciaRecurso) - N(b.e.SequenciaRecurso) || a.i - b.i; })
       .map(function (x) { return x.e; });
   }
-  /* { etapas: [materiais de cada máquina, na ordem de maquinasImpressas], sem: [materiais sem máquina] } */
+  /* { etapas: [materiais de cada máquina, na ordem de maquinasImpressas], notas: [textos por máquina], sem: [materiais sem máquina] } */
   function materiaisPorMaquina(op, ets) {
     var d = D() || {}, cod = txt(op && op.CodOP), rot = txt(op && op.CodRoteiro), porId = Object.create(null), porOrdem = Object.create(null);
     ets.forEach(function (e, i) {
@@ -1598,9 +1611,8 @@
     }
     var rotMat = rot ? A(d.roteiro_materiais).filter(function (x) { return x && txt(x.CodRoteiro) === rot; }) : [];
     var rotPI = rot ? A(d.roteiro_pi_entradas).filter(function (x) { return x && txt(x.CodRoteiro) === rot; }) : [];
-    var r = { etapas: ets.map(function () { return []; }), sem: [] };
-    A(d.op_materiais).forEach(function (m) {
-      if (!m || txt(m.CodOP) !== cod || genealogiaDaFamilia(m) || m.RemovidoDoRoteiro === 'Sim') return;
+    var linhas = A(d.op_materiais).filter(function (m) { return m && txt(m.CodOP) === cod && !genealogiaDaFamilia(m) && m.RemovidoDoRoteiro !== 'Sim'; });
+    var maq = linhas.map(function (m) {
       var i = maquinaDaLinha(m), o = ordemDaLinha(m), codM = txt(m.CodigoMaterial || m.CodigoPI);
       if (i < 0 && codM) {
         var pi = linhaDePI(m), cand = [];
@@ -1614,22 +1626,45 @@
         if (cand.length === 1) i = cand[0];
       }
       if (i < 0 && porOrdem[o] && porOrdem[o].length === 1) i = porOrdem[o][0];
-      if (i >= 0) r.etapas[i].push(m); else r.sem.push(m);
+      return i;
     });
+    /* d) material da formulação fora do roteiro: máquina dos demais materiais da mesma formulação nesta OP */
+    var notas = ets.map(function () { return []; });
+    linhas.forEach(function (m, j) {
+      var g = grupoDaFormula(m); if (maq[j] >= 0 || !g) return;
+      var alvo = [];
+      linhas.forEach(function (x, k) { if (k !== j && maq[k] >= 0 && grupoDaFormula(x) === g && alvo.indexOf(maq[k]) < 0) alvo.push(maq[k]); });
+      if (alvo.length !== 1) return;
+      maq[j] = alvo[0];
+      notas[alvo[0]].push(txt(m.CodigoMaterial) + ' vem da formulação ' + txt(m.CodFormula) + (txt(m.GrupoFormula) ? ' (' + txt(m.GrupoFormula) + ')' : '') +
+        ' e não consta no roteiro: listado na máquina dos demais materiais dessa formulação.');
+    });
+    var r = { etapas: ets.map(function () { return []; }), notas: notas, sem: [] };
+    linhas.forEach(function (m, j) { if (maq[j] >= 0) r.etapas[maq[j]].push(m); else r.sem.push(m); });
     return r;
   }
   window.mesOPMateriaisPorMaquina = function (codOP) {
     var op = A((D() || {}).op).find(function (o) { return o && txt(o.CodOP) === txt(codOP); }); if (!op) return null;
     var ets = maquinasImpressas(op), r = materiaisPorMaquina(op, ets), cods = function (l) { return l.map(function (m) { return txt(m.CodigoMaterial || m.CodigoPI); }); };
-    return { maquinas: ets.map(function (e, i) { return { Ordem: txt(e.Ordem), IdRecursoRoteiro: txt(e.IdRecursoRoteiro), Recurso: e.Recurso || e.Equipamento || '', materiais: cods(r.etapas[i]) }; }), semMaquina: cods(r.sem) };
+    return { maquinas: ets.map(function (e, i) { return { Ordem: txt(e.Ordem), IdRecursoRoteiro: txt(e.IdRecursoRoteiro), Recurso: e.Recurso || e.Equipamento || '', materiais: cods(r.etapas[i]), notas: r.notas[i] }; }), semMaquina: cods(r.sem) };
   };
   function qtdSemRuido(v) {
     var s = txt(v); if (!/^-?\d+\.\d{10,}$/.test(s)) return v;
     var n = Number(s), q = Math.round(n * 1e9) / 1e9;
     return (q === 0 && n !== 0) ? v : String(q);
   }
-  function frontendDaOPImpressa() {
-    return typeof htmlEscape === 'function' && typeof opProductInfo === 'function' && typeof recursoNomeV32 === 'function' && typeof blankBox === 'function';
+  /* substitutos das funções do frontend usadas na página (o frontend tem todas; se alguma faltar, a página sai igual) */
+  function escOP(v) { if (typeof htmlEscape === 'function') return htmlEscape(v); return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function caixaOP(rotulo) { return '<div class="blank"><b>' + escOP(rotulo) + '</b><span>&nbsp;</span></div>'; }
+  function produtoDaOPImpressa(op) {
+    try { if (typeof opProductInfo === 'function') { var p = opProductInfo(op); if (p && (p.cod || p.desc)) return p; } } catch (e) { }
+    var c = txt(op.CodigoProduto || op.CodProduto || op.CodigoPI || op.Produto), e2 = A((D() || {}).estrutura).find(function (x) { return x && txt(x['Código']) === c; });
+    return { cod: c, desc: (e2 && e2['Descrição']) || op.DescricaoProduto || '' };
+  }
+  function recursoDaEtapaImpressa(e) {
+    if (txt(e.Recurso || e.Equipamento)) return e.Recurso || e.Equipamento;
+    try { if (typeof recursoNomeV32 === 'function') { var n = recursoNomeV32(e.CodEquipamento, e.Processo); if (txt(n)) return n; } } catch (x) { }
+    return txt(e.CodEquipamento) || '-';
   }
   /* documentos de controle marcados na OP (Ordens de Produção > "Documentos de controle para impressão da OP"): mesma
      consulta do frontend (GET /api/equipment/<código>/documents de cada equipamento das etapas), só quando há marcados */
@@ -1645,8 +1680,12 @@
     });
     return lst;
   }
+  function rodapeOPImpressa() {
+    return '<div class="mes-op-versao" style="font-size:8px;color:#8395a3;text-align:right;margin-top:6px">MES LION JSON ' + VERSAO_OP_IMPRESSA + ' · materiais na máquina indicada no roteiro</div>';
+  }
+  function aberturaCartaoOP(first) { return '<div class="op-card' + (first ? '" style="break-before:auto;page-break-before:auto">' : ' break">'); }
   function paginaOPPorMaquina(op, first) {
-    var h = htmlEscape, cod = op.CodOP || '', ets = maquinasImpressas(op), dist = materiaisPorMaquina(op, ets), info = opProductInfo(op), docs = documentosMarcadosDaOP(op);
+    var h = escOP, cod = op.CodOP || '', ets = maquinasImpressas(op), dist = materiaisPorMaquina(op, ets), info = produtoDaOPImpressa(op), docs = documentosMarcadosDaOP(op);
     var cab = '<thead><tr><th>Código</th><th>Material / PI consumido</th><th>Qtd.</th><th>UM</th><th>Lote</th><th>Fornecedor</th><th>Consumo real</th><th>Perda</th></tr></thead>';
     function linha(m) {   /* mesma linha do frontend (código, descrição, qtd., UM, lote, fornecedor e duas colunas para anotar) */
       var c = m.CodigoMaterial || m.CodigoPI || '', p = A((D() || {}).estrutura).find(function (x) { return x && x['Código'] === c; });
@@ -1655,12 +1694,13 @@
     }
     var etapas = ets.map(function (e, i) {
       return '<section class="op-stage"><h2>' + h(e.Ordem || '') + ' · ' + h(e.Processo || 'Etapa') + '</h2><div class="op-summary-v395">' +
-        '<div><b>Recurso</b><span>' + h(e.Recurso || e.Equipamento || recursoNomeV32(e.CodEquipamento, e.Processo) || '-') + '</span></div>' +
+        '<div><b>Recurso</b><span>' + h(recursoDaEtapaImpressa(e)) + '</span></div>' +
         '<div><b>Tempo</b><span>' + h(e.TempoPlanejado || e.TempoOperacaoMin || '') + ' min</span></div>' +
         '<div><b>Pessoas</b><span>' + h(e.PessoasPlanejado || e.NPessoas || '') + '</span></div>' +
         '<div><b>Produto gerado</b><span>' + h(e.ProdutoGerado || info.cod) + '</span></div></div>' +
         '<table>' + cab + '<tbody>' + (dist.etapas[i].map(linha).join('') || '<tr><td colspan="8">Sem materiais indicados no roteiro para este recurso.</td></tr>') + '</tbody></table>' +
-        '<div class="annotation-grid">' + blankBox('Início') + blankBox('Fim') + blankBox('Operador') + blankBox('Quantidade produzida') + blankBox('Quantidade rejeitada') + blankBox('Conferência') + '</div>' +
+        (dist.notas[i].length ? '<p class="small mes-op-nota" style="margin:2px 0 5px;color:#4b6475">' + dist.notas[i].map(h).join('<br>') + '</p>' : '') +
+        '<div class="annotation-grid">' + caixaOP('Início') + caixaOP('Fim') + caixaOP('Operador') + caixaOP('Quantidade produzida') + caixaOP('Quantidade rejeitada') + caixaOP('Conferência') + '</div>' +
         '<div class="obs-big"><b>Observações da etapa:</b></div></section>';
     }).join('');
     var sem = '';
@@ -1680,20 +1720,23 @@
       docs.map(function (x) { return '<tr><td>' + h(x.equipment) + '</td><td>' + h(x.original_name) + '</td><td>' + h(x.document_type || '') + '</td><td>' + h(x.revision || '') + '</td></tr>'; }).join('') +
       '</tbody></table><p class="small">Os arquivos marcados fazem parte do pacote documental desta OP e devem ser impressos junto ao documento operacional.</p></section>' : '';
     /* a folha de estilo do relatório quebra a página antes de toda OP; a primeira não quebra (o cabeçalho vem antes dela) */
-    return '<div class="op-card' + (first ? '" style="break-before:auto;page-break-before:auto">' : ' break">') + '<h2>ORDEM DE PRODUÇÃO</h2><table class="op-head">' +
+    return aberturaCartaoOP(first) + '<h2>ORDEM DE PRODUÇÃO</h2><table class="op-head">' +
       '<tr><th>OP</th><td>' + h(cod) + '</td><th>Status</th><td>' + h(op.Status || '') + '</td></tr>' +
       '<tr><th>Produto</th><td colspan="3"><b>' + h(info.cod) + '</b> — ' + h(info.desc) + '</td></tr>' +
       '<tr><th>Roteiro</th><td>' + h(op.CodRoteiro || '') + '</td><th>Quantidade</th><td>' + h(op.QtdPlanejada || '') + ' ' + h(op.UM || '') + '</td></tr></table>' +
-      etapas + sem + dh + '<div class="obs-big"><b>Observações gerais:</b></div><div class="sign"><div class="line">Produção</div><div class="line">Qualidade</div><div class="line">PCP / Engenharia</div></div></div>';
+      etapas + sem + dh + '<div class="obs-big"><b>Observações gerais:</b></div><div class="sign"><div class="line">Produção</div><div class="line">Qualidade</div><div class="line">PCP / Engenharia</div></div>' + rodapeOPImpressa() + '</div>';
   }
   (function () {
     var basePag = window.opProductionPage;
-    if (typeof basePag === 'function' && frontendDaOPImpressa()) {
-      window.opProductionPage = function (op, first) {
-        try { if (op && op.CodOP) return paginaOPPorMaquina(op, !!first); } catch (e) { console.warn('MES LION 1.7.1: OP impressa por máquina', e); }
-        return basePag.apply(this, arguments);
-      };
-    }
+    window.opProductionPage = function (op, first) {
+      if (!op || !op.CodOP) return typeof basePag === 'function' ? basePag.apply(this, arguments) : '';
+      try { return paginaOPPorMaquina(op, !!first); } catch (e) {
+        if (window.console) console.error('MES LION ' + VERSAO_OP_IMPRESSA + ': OP impressa por máquina', e);
+        /* nunca volta ao layout antigo (que repetia os materiais em todas as máquinas da operação) */
+        return aberturaCartaoOP(!!first) + '<h2>ORDEM DE PRODUÇÃO ' + escOP(op.CodOP) + '</h2><p style="color:#b00020;font-weight:bold">Não foi possível montar esta OP por máquina (' +
+          escOP(e && e.message || e) + '). A lista de materiais não foi impressa para não sair errada; avise o suporte do MES.</p>' + rodapeOPImpressa() + '</div>';
+      }
+    };
   })();
   (function () {
     var pagAnt = window.opProductionPage;

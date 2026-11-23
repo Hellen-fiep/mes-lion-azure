@@ -223,8 +223,8 @@ async def main():
             const esperados = data.op_materiais.filter(m => m.CodOP === op.CodOP && !(String(m.Ordem || m.OrdemEtapa) === 'PI' && /genealog/i.test(m.Processo || '')) && m.RemovidoDoRoteiro !== 'Sim')
               .map(m => m.CodigoMaterial || m.CodigoPI).sort();
             return [op.CodOP, JSON.stringify(impressos) === JSON.stringify(esperados), secs.filter(s => s.querySelector('.op-summary-v395')).length === data.op_etapas.filter(e => e.CodOP === op.CodOP).length, impressos.length]; })""")
-        ok(len(todas) == 16 and all(t[1] and t[2] for t in todas) and sum(t[3] for t in todas) == 43,
-           '1.7.1: nas 16 OPs cada material da OP sai uma única vez (43 linhas: 36 do roteiro + 7 PIs do fluxo; genealogia fora) e há uma seção por máquina', [t for t in todas if not (t[1] and t[2])] or sum(t[3] for t in todas))
+        ok(len(todas) == 16 and all(t[1] and t[2] for t in todas) and sum(t[3] for t in todas) == 44,
+           '1.7.1: nas 16 OPs cada material da OP sai uma única vez (44 linhas: 36 do roteiro + o MP0010 da formulação na OP -02 + 7 PIs do fluxo; genealogia fora) e há uma seção por máquina', [t for t in todas if not (t[1] and t[2])] or sum(t[3] for t in todas))
         sint = await ev(f"""() => {{
             const ent = mesApontamentoPI14.entradasPI('{ROT}').find(x => x.OrdemEtapa === '70' && x.CodigoPI === 'PI0005') || {{}};
             const b = {{ CodOP: '{OP07}', CodRoteiro: '{ROT}', UM: 'm', QtdPlanejada: '1', TipoConsumo: 'Material', Processo: 'Montagem Célula' }};
@@ -623,8 +623,9 @@ async def main():
                      z: [z.Planejado, z.JaConsumido, z.NecessidadeBruta], res: [res.Planejado, res.Consumido, res.Reservado] }}; }})()""")
         ok(c161['c'] == [OP01, 'MP0001', 'EN0001', 'Sim', '0.4091', '0.5'] and perto(c161['l'][0], -0.0909) and c161['l'][1] == 'NEGATIVO',
            '1.6.1: confirmado, o consumo fica marcado (acima do saldo, saldo antes 0,4091 kg) e o lote aparece NEGATIVO', c161)
-        ok(perto(c161['z'][0], 0.4478) and perto(c161['z'][1], 0.5) and c161['z'][2] == 0 and perto(c161['res'][1], 0.5) and c161['res'][2] == 0,
-           '1.6.1: MRP e reserva da OP -01 descontam o que ela já consumiu (planejado 0,4478 − consumido 0,5 → nada a consumir)', c161)
+        # 1.7.2: a OP aberta -01 entra já recalculada pela regra atual da formulação (NMP = 1/3 da massa total de 0,8956 kg)
+        ok(perto(c161['z'][0], 0.8956 * (100 - 66.666667) / 100) and perto(c161['z'][1], 0.5) and c161['z'][2] == 0 and perto(c161['res'][1], 0.5) and c161['res'][2] == 0,
+           '1.6.1: MRP e reserva da OP -01 descontam o que ela já consumiu (planejado 0,2985 − consumido 0,5 → nada a consumir)', c161)
         uml = await ev("""(() => { const l = mesLinhasEstoque().find(x => x.Entrada === 'EN0016'), m = mesResumoMateriaisEstoque().find(x => x.CodigoMaterial === 'MP0016');
             return [l.Saldo, l.UM, m.SaldoFisico, m.UM, mesEstoqueAPI.converterUM(1, 'kg', 'L', 'MP0016').q, mesEstoqueAPI.converterUM(500, 'g', 'kg', 'MP0001').q,
                     mesEstoqueAPI.converterUM(2, 'un', 'kg', 'MP0018').q, mesEstoqueAPI.converterUM(1, 'L', 'm', 'MP0016').ok]; })()""")

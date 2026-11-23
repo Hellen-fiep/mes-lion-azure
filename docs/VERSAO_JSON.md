@@ -86,7 +86,7 @@ servida:
 |---|---|---|
 | `adaptador_frontend.js` | `mes-adaptador-json` | 1.0.0 (calendário por máquina na 1.4.0) |
 | `adaptador_passaporte.js` | `mes-adaptador-passaporte` | 1.1.0 / 1.7.0 |
-| `adaptador_codigos_estoque.js` | `mes-adaptador-codigos-estoque` | 1.2.0 / 1.3.0 / 1.6.0 / 1.6.1 / 1.7.1 |
+| `adaptador_codigos_estoque.js` | `mes-adaptador-codigos-estoque` | 1.2.0 / 1.3.0 / 1.6.0 / 1.6.1 / 1.7.1 / 1.7.2 |
 | `adaptador_estoque_ajustes.js` | `mes-adaptador-estoque-ajustes` | 1.3.0 / 1.6.1 |
 | `adaptador_apontamento_pi.js` | `mes-adaptador-apontamento-pi` | 1.4.0 / 1.6.1 |
 | `adaptador_relatorios.js` | `mes-adaptador-relatorios` | 1.5.0 / 1.6.1 |
@@ -94,6 +94,7 @@ servida:
 | `adaptador_helpdesk_assistente.js` | `mes-adaptador-helpdesk-assistente` | 1.6.0 / 1.6.1 / 1.7.0 |
 | `adaptador_paradas_testes.js` | `mes-adaptador-paradas-testes` | 1.7.0 |
 | `adaptador_paineis.js` | `mes-adaptador-paineis` | 1.7.0 |
+| `adaptador_integridade.js` | `mes-adaptador-integridade` | 1.7.2 (incluído por último) |
 
 Correções de `adaptador_frontend.js`:
 
@@ -452,6 +453,55 @@ Os dados da 1.7.0 são lidos sem conversão; a mudança é só na montagem da p�
     (solvente como partes sobre os sólidos, e não 50% da massa total como na geração da OP). Por isso o teste chama
     `opProductionPage` direto.
 
+
+### Auditoria de integridade dos dados (1.7.2)
+
+Auditoria feita com uma foto dos dados (memória e servidor) antes e depois de cada ação que só lê — entrar, abrir
+todas as telas, ver cada OP e cada roteiro, PDF OP Produção, Picking List, Custos da OP, relatórios e Exportar Excel —
+na base real e na de teste (`sondas/auditoria_efeitos.py`, fora do repositório). Correções no adaptador novo
+`adaptador_integridade.js` (o frontend continua idêntico):
+
+53. **Nada recalcula ao ver/imprimir/exportar**: `v4050RefreshCalculatedData` (chamado por `reportOP`,
+    `reportPicking`, `reportCustosOP`, `exportSelectedExcel` e no init) passa a só corrigir a massa de deposição;
+    `v4050RecalculateFormulaOP` só roda dentro de ação explícita (`aplicarFormulaNasOPsV3813`, `v4050UpdateOPQty`,
+    `v1011ConfirmFamily`) e nunca para OP encerrada; `v1011StripFormulaFromNonSlurry` idem (rodava ao abrir a OP).
+54. **Fórmula congelada pelo retrato**: durante o recálculo, `formulaByCodeV3813` e `v101FormulaItems` devolvem cópias
+    do `SnapshotFormula` da OP (antes o cadastro atual: mudar a formulação mudava OPs já geradas); ao aplicar a
+    formulação, o cadastro é lido por cópia, e `v101EnsureFormulaRatios` deixa de gravar `TeorSolidos*`/`TeorSolvente*`
+    deduzidos no cadastro. Na entrada: teores gravados iguais à dedução são apagados (`meta.mes172TeoresDeduzidosApagados`)
+    e OP aberta de slurry cuja soma dos materiais da formulação não é a massa da OP (regra V3.8 antiga: solvente por
+    cima, 150%) é recalculada uma vez pelo retrato (`meta.mes172NormalizacaoFormula`, antes/depois), com o custo
+    projetado em seguida.
+55. **Massa de deposição** (`MassaEntradaSlurry`, `MassaSolventeEvaporada`, `MassaSecaProjetada` nas etapas de
+    coating): pai = slurry da mesma família com o mesmo eletrodo (`v1011Role`: DEP_CAT ← SLURRY_CAT, DEP_AN ←
+    SLURRY_AN); antes era o primeiro slurry da família (no cátodo, o de ânodo). Sem slurry com `MassaSolvente`, os
+    campos saem.
+56. **Custo projetado de OP encerrada**: `recalcularCustosOPV3814` regravava `CustoUnitarioProjetadoCongelado` com a
+    média do dia; para OP encerrada os campos projetados voltam ao que eram (o efetivo continua sendo atualizado), e
+    `DataAtualizacaoCustos` só muda quando algum custo muda.
+57. **Passaporte**: `v4043ApplyGenericBPFields` e `v4043FillGenericBPForm` sem efeito (os textos "Texto de validação:"
+    do V40.4.3 eram gravados nos passaportes antigos ao abrir o módulo); na entrada, campo igual ao texto genérico é
+    esvaziado (`meta.mes172TextosGenericosRemovidos`).
+58. **Autoria**: antes de cada `saveLocal`, campo `Usuario`, `UsuarioCriacao`, `UsuarioUltimaAlteracao`,
+    `UsuarioEncerramento` ou `UsuarioReabertura` que passou a "admin" desde a última gravação (OP, projeto, passaporte,
+    roteiro, formulação, simulação) recebe o usuário logado; `reportShell` (V3.9.5) com o mesmo layout e
+    "Usuário: <logado> · MES LION JSON 1.7.2" no cabeçalho.
+59. **Registros de teste do frontend** (`ensureTestDataV3819`, `v1019SeedDashboardTest`, sementes do V1.1.3): não
+    rodam com os dados reais, mas se aparecerem (CPI-TESTE-WIP-*, AT-TESTE-WIP-V1019, FORM-TESTE-LFP-01/02, OPs
+    OP-VALID-REL-* não usadas e os ICV/resultados delas) saem na entrada (`meta.mes172RegistrosDeTesteRemovidos`).
+60. **Servidor**: `/api/info` devolve `arquivosServidorAlterados` (arquivos .ps1/.js da pasta server com tamanho ou
+    data diferentes de quando o servidor abriu); o adaptador mostra a versão do servidor no menu e um aviso amarelo
+    quando a lista não está vazia. A janela do servidor mostra a versão ao abrir.
+61. **OP impressa** (`adaptador_codigos_estoque.js`, seção 10): página sem depender de funções do frontend (cada uma
+    com substituto), sem voltar ao layout antigo em caso de erro (sai o aviso, sem lista de materiais), rodapé com a
+    versão e regra d) material da formulação fora do roteiro → máquina dos demais materiais da mesma formulação na OP,
+    com nota.
+
+Efeitos que continuam (feitos para isso e conferidos): ao entrar, `CodigoBarras` das OPs, coleções vazias criadas,
+LCI duplicada removida (54.426 linhas iguais → 212), biblioteca GWP100, baixa legada de PI (1.4.0, rotulada) e
+correção de `QtdProduzida` = soma dos apontamentos (1.4.0); ao abrir as telas pela primeira vez, `IdRecurso` dos
+recursos, cartões do PCP da família aberta, indicadores oficiais dos painéis e o cache do MRP.
+
 ## Testes (CI: job `versao-json`, Windows PowerShell 5.1 real)
 
 | Suíte | O que confere |
@@ -463,6 +513,7 @@ Os dados da 1.7.0 são lidos sem conversão; a mudança é só na montagem da p�
 | `tests/teste_capacidade_json.py` | Capacidade e Carga V1 no navegador: botões no Cadastro de Recursos, capacidade e histórico gravados no servidor, relatório após F5 |
 | `tests/teste_calendario_json.py` | Calendário de Produção: tela estável, "Editar dia" com clique real do mouse (liberar sábado, bloquear dia útil), sugestão de programação e "Projetar sequência" sem operações em dias indisponíveis, trechos gravados e mantidos após F5, programação da versão anterior, "Validar conflitos", "Recalcular programação", "Limpar datas", carga do relatório Carga × capacidade, MRP > "Abrir OPs", histórico (OP concluída e apontamentos de tempo em cinza, gravados no servidor, mantidos após "Limpar datas" e F5) |
 | `tests/teste_passaporte_json.py` | 1.6.1: massas úteis da ACV calculada agora (sem o planejado sem consumo da OP encerrada). Biblioteca GWP100 e banco LCI sem repetição; versão ativa nos cálculos; template `.xlsx` com exemplo e importação (`.xlsx` do Excel, CSV, erros, `.xls` binário); passaporte: campos únicos sem obrigatório, marcas "painel", dados puxados da OP (estrutura, ACV da família e AICV, massas úteis), rascunho com OP aberta, painel do cliente e HTML do QR, alteração à mão mantida, passaporte antigo, F5, PDF interno |
+| `tests/teste_integridade_json.py` | 1.7.2: entrada com os efeitos da versão anterior (textos genéricos no passaporte, teores deduzidos, deposição trocada, registros de teste, OPs abertas com a regra antiga da formulação) corrigida e registrada; ver/imprimir/exportar sem mudar nada (memória e servidor); fórmula pelo retrato da OP; OP encerrada nunca recalculada; custo projetado de OP encerrada congelado; autoria e cabeçalho com o usuário logado; OP impressa com a versão e o MP0010 na máquina da formulação. |
 | `tests/teste_apontamento_pi_json.py` | 1.7.1: OP impressa — PA, -07, -01 e -03 com os materiais e os PIs do fluxo só na máquina do roteiro; nas 16 OPs cada linha sai uma vez e há uma seção por máquina; linhas sem máquina gravada (operação + equipamento, Roteiro - Materiais, entrada de PI, recurso antigo) e "Materiais sem máquina indicada no roteiro"; códigos de barras mantidos; primeira OP sem quebra de página na janela de impressão. 1.6.1: encerramento avisa o material planejado sem consumo, que fica com R$ 0 no custo e fora da ACV (OP aberta segue projetada); lista de lotes com o saldo; consumo acima do saldo (sem confirmar não grava; confirmado, marcado e lote NEGATIVO, gravado no servidor); MRP e reserva descontando o já consumido; conversão de UM (L → kg pelo fator, g → kg, un → kg, sem regra); aviso de saldo negativo na tela. 1.4.0: correção da QtdProduzida e baixa única das famílias encerradas; motivos de perda (duplicado, parecido, lista, importação); fluxo de PIs no roteiro (validação, sugestão, cópia) e Estrutura em níveis; PI nas OPs abertas; etiquetas (kg, N por etiqueta, por unidade, aglutinada, impressão); consumo de PI pela etiqueta, perda na etapa, saldo insuficiente, estorno; origem da perda (PI e material com lote); custo/CO₂ sem dupla contagem; PI isolado com custo herdado; tempo por máquina (intervalo, iniciar/finalizar, sobreposição, energia) e calendário por máquina; baixa automática no encerramento; estoque PI/PA (saldos, etiquetas, rastreio, baixa/estorno, cancelamento, conferência); exclusão bloqueada; servidor e F5 |
 | `tests/teste_relatorios_json.py` | 1.6.1: Custo por OP (energia + MOD das OPs = família; total efetivo das OPs = custo da família; colunas novas), família encerrada só com o consumo real, MRP com planejado e já consumido, Consistência dos dados (verificações esperadas na base de teste, lotes negativos e códigos repetidos, ordem e resumo); saldo por material = soma dos lotes convertidos. 1.5.0: menu e catálogo (busca, módulo); todos os relatórios executam e abrem na tela; nenhum dado alterado nem gravado ao executar; números = funções das telas (saldo por lote e por material, livro PI/PA, produção, tempo planejado e tempo real gravado na etapa, Pareto, carga × capacidade, MRP, custo e CO₂ da família); saída e estorno do Ajuste de Estoque no relatório e no saldo do lote; filtros (período, OP, produto sem acento, situação, busca), colunas e ordem; `.xlsx` baixado pela tela conferido com openpyxl (tipos, formatos, unidade no cabeçalho, SUBTOTAL, filtro, painel, Parâmetros); histórico das exportações; modelos (salvar, substituir, abrir, exportar, excluir, servidor); dossiê (abas, resumo, custo/CO₂, rastreabilidade, só a OP) |
 | `tests/teste_importacao_recursos_json.py` | 1.6.0: botão e tela; modelo em branco conferido com openpyxl (abas, grupos mesclados, painel, listas suspensas e nomes, Listas, exemplos tipados, Instruções); exemplos ignorados; validação (código automático, novo processo herdando do cadastro, atualização sem acento, listas, capacidade com padrões e uma vez por código); importação gravada no servidor (recursos + cadastro ligados, custos, capacidade e histórico, registro e auditoria); mesma planilha de novo sem duplicar; modelo com os cadastrados de volta sem mudança (códigos repetidos, `0,80`, espaço no fim); erros que bloqueiam e planilha de erros (e subir de novo); CSV com nomes dos campos; "Atualizar" desmarcado; troca de código e processo pelo ID; desfazer (exato, linha alterada depois, equipamento em roteiro) |

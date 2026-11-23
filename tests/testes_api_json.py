@@ -101,7 +101,10 @@ ok('mes-adaptador-recursos-importacao' in r.text and 'MES_ADAPTADOR_RECURSOS_IMP
 ok('mes-adaptador-paradas-testes' in r.text and 'MES_ADAPTADOR_PARADAS_TESTES' in r.text and 'mesParadasTestesAPI' in r.text
    and 'mes-adaptador-paineis' in r.text and 'MES_ADAPTADOR_PAINEIS' in r.text and 'mesPaineisAPI' in r.text
    and r.text.index('mes-adaptador-paineis') > r.text.index('mes-adaptador-paradas-testes') > r.text.index('mes-adaptador-helpdesk-assistente'),
-   'adaptadores 1.7.0 incluídos por último: paradas e testes das células, e os painéis (server/adaptador_paradas_testes.js, adaptador_paineis.js)', '')
+   'adaptadores 1.7.0 incluídos depois do Help Desk: paradas e testes das células, e os painéis (server/adaptador_paradas_testes.js, adaptador_paineis.js)', '')
+ok('mes-adaptador-integridade' in r.text and 'MES_ADAPTADOR_INTEGRIDADE' in r.text and 'mesIntegridade172' in r.text
+   and r.text.index('mes-adaptador-integridade') > r.text.index('mes-adaptador-paineis'),
+   'adaptador 1.7.2 (integridade dos dados) incluído por último (server/adaptador_integridade.js)', '')
 ok('mes_plataforma_azure.js' not in r.text, 'index.html sem o adaptador do Azure', '')
 r = anon.get(BASE + '/js/app.js?v=1.0.21'); ok(r.status_code == 200 and r.headers.get('content-type', '').startswith('application/javascript'), 'js/app.js servido (application/javascript)', r.headers.get('content-type'))
 r = anon.get(BASE + '/assets/logo-mes.jpg'); ok(r.status_code == 200 and r.headers.get('content-type') == 'image/jpeg', 'imagem servida', r.status_code)
@@ -423,6 +426,17 @@ ok(r.status_code in (200, 400) and ('path' in r.json() or 'Pasta de dados' in r.
 # ---------------------------------------------------------------- info / logout
 inf = s.get(BASE + '/api/info').json()
 ok(inf['app'] == 'MES LION' and inf['banco']['provedor'] == 'JSON' and inf['estado']['bytes'] > 0, 'GET /api/info', inf.get('estado'))
+ok(str(inf.get('servidorVersao', '')).startswith('1.7.2') and inf.get('arquivosServidorAlterados') == [],
+   'GET /api/info: versão do servidor 1.7.2 e nenhum arquivo da pasta server alterado depois da abertura', (inf.get('servidorVersao'), inf.get('arquivosServidorAlterados')))
+if DADOS:
+    arq_adapt = os.path.join(DADOS, '..', 'server', 'adaptador_integridade.js')
+    st0 = os.stat(arq_adapt)
+    os.utime(arq_adapt, ns=(st0.st_atime_ns, st0.st_mtime_ns + 30 * 10 ** 9))
+    alt = s.get(BASE + '/api/info').json().get('arquivosServidorAlterados')
+    os.utime(arq_adapt, ns=(st0.st_atime_ns, st0.st_mtime_ns))
+    alt2 = s.get(BASE + '/api/info').json().get('arquivosServidorAlterados')
+    ok(alt == ['adaptador_integridade.js'] and alt2 == [],
+       'GET /api/info avisa arquivo da pasta server alterado com o servidor aberto (atualização copiada sem fechar a janela)', (alt, alt2))
 r = s.get(BASE + '/api/rota-inexistente'); ok(r.status_code == 404 and r.text == 'API não encontrada', 'rota /api inexistente com sessão -> 404 "API não encontrada"', f'{r.status_code} {r.text}')
 r = s.post(BASE + '/api/auth/logout'); ok(r.json() == {'ok': True}, 'logout', r.text)
 ok(s.get(BASE + '/api/bootstrap').status_code == 401, 'sessão encerrada após logout', '')
